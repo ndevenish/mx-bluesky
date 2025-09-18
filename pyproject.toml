@@ -16,6 +16,7 @@ dependencies = [
     # If a constraint is not set here or if the dependency is pinned to a hash
     # it will be auto-pinned to the latest release version by the pre-release workflow
     #
+    "aioca>=2.0a4",
     "annotated_types",
     "caproto",
     "fastapi[all]",
@@ -33,7 +34,7 @@ dependencies = [
     "pyepics",
     "pyzmq",
     "requests",
-    "scanspec",
+    "scanspec>=1.0a1",
     "scipy",
     "semver",
     "deepdiff",
@@ -55,7 +56,7 @@ dependencies = [
 dynamic = ["version"]
 license.file = "LICENSE"
 readme = "README.rst"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.13"
 
 [project.optional-dependencies]
 dev = [
