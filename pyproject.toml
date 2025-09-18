@@ -63,6 +63,7 @@ dev = [
     "build",
     # Commented out due to dependency version conflict with pydantic 1.x
     # "copier",
+    "aioca>=2.0a4",
     "diff-cover",
     "GitPython",
     "import-linter",
@@ -254,3 +255,7 @@ name = "Beamlines do not import from hyperion"
 type = "forbidden"
 source_modules = "mx_bluesky.beamlines.**"
 forbidden_modules = "mx_bluesky.hyperion.**"
+
+[tool.uv.sources]
+dls-dodal = { path = "./dodal" }
+ophyd-async = { path = "./ophyd-async" }

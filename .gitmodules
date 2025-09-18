@@ -1,0 +1,6 @@
+[submodule "ophyd-async"]
+	path = ophyd-async
+	url = ./ophyd-async/
+[submodule "dodal"]
+	path = dodal
+	url = ./dodal/
