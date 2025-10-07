@@ -8,15 +8,10 @@ from typing import Annotated
 
 import typer
 from bluesky.run_engine import RunEngine
-from dodal.common.beamlines.beamline_utils import (
-    device_factory,
-)
+from dodal.common.beamlines.beamline_utils import device_factory
 from dodal.devices.i24.commissioning_jungfrau import CommissioningJungfrau
 from dodal.utils import BeamlinePrefix, get_beamline_name
-from ophyd_async.core import (
-    AutoMaxIncrementingPathProvider,
-    init_devices,
-)
+from ophyd_async.core import AutoMaxIncrementingPathProvider, init_devices
 from ophyd_async.fastcs.jungfrau import GainMode
 from rich import print
 
@@ -28,6 +23,8 @@ from mx_bluesky.beamlines.i24.jungfrau_commissioning.plan_utils import (
     add_info_logs_to_stdout,
 )
 from mx_bluesky.common.utils.log import LOGGER, do_default_logging_setup
+
+DEFAULT_STORAGE = Path("/dls/i24/data/2025/cm40647-4/jungfrau")
 
 
 class NaturalOrderGroup(typer.core.TyperGroup):
@@ -57,7 +54,7 @@ def pedestals(
     exposure_time_s: float,
     storage_directory: Annotated[
         Path, typer.Option("-o", "--output", help="Output directory")
-    ],
+    ] = DEFAULT_STORAGE,
     pedestal_loops: Annotated[int, typer.Argument()] = 20,
     pedestal_frames: Annotated[int, typer.Argument()] = 200,
 ):
@@ -68,7 +65,7 @@ def pedestals(
         return CommissioningJungfrau(
             f"{PREFIX.beamline_prefix}-EA-JFRAU-01:",
             f"{PREFIX.beamline_prefix}-JUNGFRAU-META:FD:",
-            AutoMaxIncrementingPathProvider(PurePath(storage_directory)),  # type: ignore
+            AutoMaxIncrementingPathProvider(PurePath(storage_directory), dated=True),  # type: ignore
         )
 
     async def do_plan():
@@ -77,13 +74,15 @@ def pedestals(
             jf = commissioning_jungfrau()
         RE(do_pedestal_darks(exposure_time_s, pedestal_frames, pedestal_loops, jf))
 
+    asyncio.run(do_plan())
+
 
 @app.command()
 def darks(
     exposure_time_s: float,
     storage_directory: Annotated[
         Path, typer.Option("-o", "--output", help="Output directory")
-    ],
+    ] = DEFAULT_STORAGE,
     gainmode: GainMode = GainMode.DYNAMIC,
     frames: Annotated[int, typer.Argument()] = 1000,
 ):
@@ -94,7 +93,7 @@ def darks(
         return CommissioningJungfrau(
             f"{PREFIX.beamline_prefix}-EA-JFRAU-01:",
             f"{PREFIX.beamline_prefix}-JUNGFRAU-META:FD:",
-            AutoMaxIncrementingPathProvider(PurePath(storage_directory)),  # type: ignore
+            AutoMaxIncrementingPathProvider(PurePath(storage_directory), dated=True),  # type: ignore
         )
 
     async def do_plan():
