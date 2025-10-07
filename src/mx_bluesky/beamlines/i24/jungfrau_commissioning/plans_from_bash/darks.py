@@ -5,7 +5,6 @@ from pathlib import PurePath
 from bluesky.run_engine import RunEngine
 from dodal.beamlines import i24
 from dodal.common.beamlines.beamline_utils import (
-    BL,
     device_factory,
 )
 from dodal.devices.i24.commissioning_jungfrau import CommissioningJungfrau
