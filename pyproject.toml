@@ -257,5 +257,5 @@ source_modules = "mx_bluesky.beamlines.**"
 forbidden_modules = "mx_bluesky.hyperion.**"
 
 [tool.uv.sources]
-dls-dodal = { path = "./dodal" }
-ophyd-async = { path = "./ophyd-async" }
+dls-dodal = { path = "dodal", editable = true }
+ophyd-async = { path = "ophyd-async", editable = true }

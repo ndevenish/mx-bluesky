@@ -1028,7 +1028,7 @@ wheels = [
 
 [[package]]
 name = "dls-dodal"
-source = { directory = "dodal" }
+source = { editable = "dodal" }
 dependencies = [
     { name = "aiofiles" },
     { name = "aiohttp" },
@@ -2769,7 +2769,7 @@ requires-dist = [
     { name = "daq-config-server", specifier = ">=1.0.0rc2" },
     { name = "deepdiff" },
     { name = "diff-cover", marker = "extra == 'dev'" },
-    { name = "dls-dodal", directory = "dodal" },
+    { name = "dls-dodal", editable = "dodal" },
     { name = "fastapi", extras = ["all"] },
     { name = "flask-restful" },
     { name = "gitpython", marker = "extra == 'dev'" },
@@ -2786,7 +2786,7 @@ requires-dist = [
     { name = "opentelemetry-distro" },
     { name = "opentelemetry-exporter-otlp" },
     { name = "ophyd", specifier = ">=1.10.5" },
-    { name = "ophyd-async", directory = "ophyd-async" },
+    { name = "ophyd-async", editable = "ophyd-async" },
     { name = "pipdeptree", marker = "extra == 'dev'" },
     { name = "plantweb", marker = "extra == 'dev'" },
     { name = "pre-commit", marker = "extra == 'dev'" },
@@ -3326,7 +3326,7 @@ wheels = [
 
 [[package]]
 name = "ophyd-async"
-source = { directory = "ophyd-async" }
+source = { editable = "ophyd-async" }
 dependencies = [
     { name = "bluesky" },
     { name = "colorlog" },
