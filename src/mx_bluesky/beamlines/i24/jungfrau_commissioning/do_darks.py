@@ -28,6 +28,8 @@ def do_pedestal_darks(
     pedestal_loops: PositiveInt = 200,
     jungfrau: CommissioningJungfrau = inject("jungfrau"),
     path_of_output_file: str | None = None,
+    *,
+    deadtime_s: float = 0.0,
 ) -> MsgGenerator[WatchableAsyncStatus]:
     """Acquire darks in pedestal mode, using dynamic gain mode. This calibrates the offsets
     for the jungfrau, and must be performed before acquiring real data in dynamic gain mode.
@@ -47,6 +49,7 @@ def do_pedestal_darks(
         jungfrau: Jungfrau device
         path_of_output_file: Absolute path of the detector file output, including file name. If None, then use the PathProvider
             set during Jungfrau device instantiation
+        deadtime_s: Amount of time to wait between consecutive frames
     """
 
     jungfrau._writer._path_info.filename = "pedestal_darks"  # type: ignore
@@ -62,7 +65,7 @@ def do_pedestal_darks(
             # override_file_path(jungfrau, path_of_output_file)
 
         trigger_info = create_jungfrau_pedestal_triggering_info(
-            exp_time_s, pedestal_frames, pedestal_loops
+            exp_time_s, pedestal_frames, pedestal_loops, deadtime_s=deadtime_s
         )
         return (
             yield from fly_jungfrau(
@@ -93,6 +96,8 @@ def do_standard_darks(
     exp_time_s: float = 0.001,
     number_of_triggers: PositiveInt = 1000,
     jungfrau: CommissioningJungfrau = inject("jungfrau"),
+    *,
+    deadtime_s: float = 0.0,
 ):
     jungfrau._writer._path_info.filename = "standard_darks"  # type: ignore  # noqa: SLF001
 
@@ -106,7 +111,7 @@ def do_standard_darks(
         yield from bps.mv(jungfrau.drv.gain_mode, gain_mode)
 
         trigger_info = create_jungfrau_internal_triggering_info(
-            number_of_triggers, exp_time_s
+            number_of_triggers, exp_time_s, deadtime_s=deadtime_s
         )
         yield from fly_jungfrau(
             jungfrau,

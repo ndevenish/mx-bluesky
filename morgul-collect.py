@@ -89,13 +89,14 @@ def pedestals(
             "--period",
             parser=parse_time_default_s,
             metavar="TIME",
-            help="Separately specified period from exposure time. If set, this will be used as the gap between frames, instead of defaulting to the same as exposure time.",
+            help="Separately specified period (time between frames) from exposure time. If set, this will be used as the gap between frames, instead of defaulting to the same as exposure time.",
         ),
     ] = None,
 ):
     """Run pedestal calibrations"""
-    assert period is None, "Period not implemented yet"
     BL, PREFIX = do_common_bluesky_setup()
+
+    deadtime = (period or exposure_time) - exposure_time
 
     @device_factory()
     def commissioning_jungfrau() -> CommissioningJungfrau:
@@ -111,12 +112,18 @@ def pedestals(
             jf = commissioning_jungfrau()
         RE(
             do_pedestal_darks(
-                exposure_time.to("seconds").m, pedestal_frames, pedestal_loops, jf
+                exposure_time.to("seconds").m,
+                pedestal_frames,
+                pedestal_loops,
+                jf,
+                deadtime_s=deadtime.to("seconds").m,
             )
         )
 
     print("Running pedestal calibration")
     print(f"Exposure time: {exposure_time.to_compact():~}")
+    if period:
+        print(f"       Period: {period.to_compact():~}")
 
     asyncio.run(do_plan())
 
@@ -148,8 +155,9 @@ def darks(
     ] = None,
 ):
     """Collect dark images, in a specific gain mode"""
-    assert period is None, "Period not implemented yet"
     BL, PREFIX = do_common_bluesky_setup()
+
+    deadtime = (period or exposure_time) - exposure_time
 
     @device_factory()
     def commissioning_jungfrau() -> CommissioningJungfrau:
@@ -163,7 +171,20 @@ def darks(
         RE = RunEngine()
         with init_devices():
             jf = commissioning_jungfrau()
-        RE(do_standard_darks(gainmode, exposure_time.to("seconds").m, frames, jf))
+        RE(
+            do_standard_darks(
+                gainmode,
+                exposure_time.to("seconds").m,
+                frames,
+                jf,
+                deadtime_s=deadtime.to("seconds").m,
+            )
+        )
+
+    print("Collecting dark frames")
+    print(f"Exposure time: {exposure_time.to_compact():~}")
+    if period:
+        print(f"       Period: {period.to_compact():~}")
 
     asyncio.run(do_plan())
 
