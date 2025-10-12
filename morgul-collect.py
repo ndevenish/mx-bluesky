@@ -1,27 +1,43 @@
 #!/usr/bin/env -S uv run
 
 import asyncio
+import importlib
+import json
 import socket
 import sys
+from collections.abc import Callable
+from decimal import Decimal, InvalidOperation
 from pathlib import Path, PurePath
 from typing import Annotated
 
 import pint
 import typer
 from bluesky.run_engine import RunEngine
+from dodal.beamlines import i24
 from dodal.common.beamlines.beamline_utils import device_factory
 from dodal.devices.i24.commissioning_jungfrau import CommissioningJungfrau
 from dodal.utils import BeamlinePrefix, get_beamline_name
 from ophyd_async.core import AutoMaxIncrementingPathProvider, init_devices
 from ophyd_async.fastcs.jungfrau import GainMode
 from rich import print
+from rich.table import Table
 
+import mx_bluesky.beamlines.i24.jungfrau_commissioning
+from mx_bluesky.beamlines.i24.jungfrau_commissioning.composites import (
+    RotationScanComposite,
+)
 from mx_bluesky.beamlines.i24.jungfrau_commissioning.do_darks import (
     do_pedestal_darks,
     do_standard_darks,
 )
 from mx_bluesky.beamlines.i24.jungfrau_commissioning.plan_utils import (
     add_info_logs_to_stdout,
+)
+from mx_bluesky.beamlines.i24.jungfrau_commissioning.rotation_scan_plan import (
+    multi_rotation_plan_varying_transmission,
+)
+from mx_bluesky.beamlines.i24.parameters.rotation import (
+    MultiRotationScanByTransmissions,
 )
 from mx_bluesky.common.utils.log import LOGGER, do_default_logging_setup
 
@@ -54,12 +70,55 @@ def do_common_bluesky_setup():
     return BL, PREFIX
 
 
-def parse_time_default_s(value: str) -> pint.Quantity:
-    """Parse a string as a pint quantity, defaulting to seconds if no unit"""
-    q = pint.Quantity(value)
-    if q.unitless:
-        q *= ureg.s
-    return q
+def parse_decimal(value: str) -> Decimal:
+    try:
+        return Decimal(value)
+    except InvalidOperation as e:
+        raise typer.BadParameter(f"'{value}' is not a valid decimal number.") from e
+
+
+def parse_quantity(
+    default_unit: str | pint.Unit | None, *, dimensionality: str
+) -> Callable[[str], pint.Quantity]:
+    """Parse a string as a pint quantity, checking dimensionality and optional default"""
+
+    def _inner(value: str) -> pint.Quantity:
+        try:
+            q = pint.Quantity(value)
+        except pint.UndefinedUnitError as e:
+            raise typer.BadParameter(f"Unrecognised unit: {e}") from e
+        if q.unitless and default_unit:
+            q *= ureg.Unit(default_unit)
+        if not q.check(dimensionality):
+            raise typer.BadParameter(
+                f"Unexpected units, provided {q.dimensionality} instead of {dimensionality}"
+            )
+        return q
+
+    return _inner
+
+
+def module_path(name) -> Path | None:
+    spec = importlib.util.find_spec(name)
+    if spec is None or spec.origin is None or spec.origin == "built-in":
+        return None
+    return Path(spec.origin)
+
+
+def find_applicable_params(filename: str) -> Path | None:
+    search = [
+        Path.cwd(),
+        Path(__file__).parent,
+        # Bad, but we know this exists, and need will go away later
+        Path(mx_bluesky.beamlines.i24.jungfrau_commissioning.__path__._path[0])
+        / "plans_from_bash",
+        Path(mx_bluesky.beamlines.i24.jungfrau_commissioning.__path__._path[0]),
+    ]
+    for path in search:
+        if (path / filename).is_file():
+            return path / filename
+    breakpoint()
+    return None
 
 
 @app.command()
@@ -67,7 +126,7 @@ def pedestals(
     exposure_time: Annotated[
         pint.Quantity,
         typer.Argument(
-            parser=parse_time_default_s,
+            parser=parse_quantity("s", dimensionality="[time]"),
             metavar="TIME",
             help="Exposure time per frame. Either seconds, or a shorthand e.g. '1ms'",
         ),
@@ -87,7 +146,7 @@ def pedestals(
         typer.Option(
             "-p",
             "--period",
-            parser=parse_time_default_s,
+            parser=parse_quantity("s", dimensionality="[time]"),
             metavar="TIME",
             help="Separately specified period (time between frames) from exposure time. If set, this will be used as the gap between frames, instead of defaulting to the same as exposure time.",
         ),
@@ -133,7 +192,7 @@ def darks(
     exposure_time: Annotated[
         pint.Quantity,
         typer.Argument(
-            parser=parse_time_default_s,
+            parser=parse_quantity("s", dimensionality="[time]"),
             metavar="TIME",
             help="Exposure time per frame. Either seconds, or a shorthand e.g. '1ms'",
         ),
@@ -148,7 +207,7 @@ def darks(
         typer.Option(
             "-p",
             "--period",
-            parser=parse_time_default_s,
+            parser=parse_quantity("s", dimensionality="[time]"),
             metavar="TIME",
             help="Separately specified period from exposure time. If set, this will be used as the gap between frames, instead of defaulting to the same as exposure time.",
         ),
@@ -185,6 +244,155 @@ def darks(
     print(f"Exposure time: {exposure_time.to_compact():~}")
     if period:
         print(f"       Period: {period.to_compact():~}")
+
+    asyncio.run(do_plan())
+
+
+@app.command()
+def rotation(
+    name: Annotated[str, typer.Argument(help="Name for the dataset")],
+    exposure_time: Annotated[
+        pint.Quantity,
+        typer.Option(
+            "--exposure",
+            "-e",
+            parser=parse_quantity("s", dimensionality="[time]"),
+            metavar="TIME",
+            help="Exposure time per frame. Either seconds, or a shorthand e.g. '1ms'",
+        ),
+    ],
+    storage_directory: Annotated[
+        Path, typer.Option("-o", "--output", help="Output directory")
+    ] = DEFAULT_STORAGE,
+    transmission: Annotated[
+        pint.Quantity | None,
+        typer.Option(
+            "-t",
+            "--transmission",
+            help="Beamline transmission, in percentage",
+            parser=parse_quantity(None, dimensionality=""),
+            metavar="FRAC",
+        ),
+    ] = None,
+    scan_width: Annotated[
+        Decimal,
+        typer.Option(
+            help="Total rotations scan width, in degrees",
+            parser=parse_decimal,
+            metavar="ANGLE",
+        ),
+    ] = Decimal(360),
+    rotation_increment: Annotated[
+        Decimal,
+        typer.Option(
+            help="Rotation increment per frame, in degrees",
+            parser=parse_decimal,
+            metavar="ANGLE",
+        ),
+    ] = Decimal("0.1"),
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            help="Print what would happen, without doing anything to the beamline"
+        ),
+    ] = False,
+):
+    # Read the bulk params file to get the defaults
+    if not (params_file := find_applicable_params("rotation_scan_params.json")):
+        print("Error: Could not find default parameters file rotation_scan_params.json")
+        sys.exit(1)
+    print(f"Loading defaults from {params_file}")
+    defaults = json.loads(params_file.read_bytes())
+
+    # Handle overriding defaults where we have requested values
+    if transmission is not None:
+        defaults["transmission_fractions"] = [transmission.to("").m]
+    if exposure_time is not None:
+        defaults["exposure_time_s"] = exposure_time.to("s").m
+
+    # Scan width... has two places?
+    defaults["scan_width_deg"] = scan_width
+    del defaults["total_scan_width_deg"]
+    defaults["rotation_increment_deg"] = rotation_increment
+    defaults["storage_directory"] = str(storage_directory)
+    defaults["file_name"] = name
+
+    # Create the parameters object
+    params = MultiRotationScanByTransmissions.model_validate(defaults)
+    print(f"Created scan parameters object: {params!r}\n")
+
+    frames = int(params.scan_width_deg / params.rotation_increment_deg)
+    table = Table(title="Rotation Collection Parameters")
+    table.add_column("Parameter", justify="right", style="cyan", no_wrap=True)
+    table.add_column("Value for this collection")
+    table.add_row(
+        "Scan Width",
+        f"{params.scan_width_deg}° in {params.rotation_increment_deg}° increments",
+    )
+    table.add_row("Frames", f"{frames}")
+    table.add_row("Path", params.storage_directory)
+    table.add_row("Name", params.file_name)
+    table.add_row(
+        "Transmission",
+        f"{ureg.Quantity(params.transmission_fractions[0]).to(ureg.percent):3.0f~}",
+    )
+    table.add_row(
+        "Exposure time",
+        f"{ureg.Quantity(params.exposure_time_s, ureg.s).to_compact():~}",
+    )
+    print(table)
+    if dry_run:
+        print("Requested dry-run, not doing any beamline actions")
+        return
+
+    BL, PREFIX = do_common_bluesky_setup()
+
+    @device_factory()
+    def commissioning_jungfrau() -> CommissioningJungfrau:
+        return CommissioningJungfrau(
+            f"{PREFIX.beamline_prefix}-EA-JFRAU-01:",
+            f"{PREFIX.beamline_prefix}-JUNGFRAU-META:FD:",
+            AutoMaxIncrementingPathProvider(PurePath(params.storage_directory)),  # type: ignore
+        )
+
+    async def create_rotation_composite() -> RotationScanComposite:
+        with init_devices():
+            aperture = i24.aperture()
+            attenuator = i24.attenuator()
+            jungfrau = commissioning_jungfrau()
+            gonio = i24.vgonio()
+            synchrotron = i24.synchrotron()
+            sample_shutter = i24.sample_shutter()
+            zebra = i24.zebra()
+            hutch_shutter = i24.shutter()
+            beamstop = i24.beamstop()
+            det_stage = i24.detector_motion()
+            backlight = i24.backlight()
+            dcm = i24.dcm()
+        return RotationScanComposite(
+            aperture,
+            attenuator,
+            jungfrau,
+            gonio,
+            synchrotron,
+            sample_shutter,
+            zebra,
+            hutch_shutter,
+            beamstop,
+            det_stage,
+            backlight,
+            dcm,
+        )
+
+    async def do_plan():
+        RE = RunEngine()
+        devices = await create_rotation_composite()
+        RE(
+            multi_rotation_plan_varying_transmission(
+                devices,
+                params,
+            )
+        )
 
     asyncio.run(do_plan())
 

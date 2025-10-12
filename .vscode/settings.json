@@ -16,9 +16,6 @@
         "editor.rulers": [
             88
         ],
-        "editor.codeActionsOnSave": {
-            "source.organizeImports.ruff": "explicit"
-        },
         "editor.defaultFormatter": "charliermarsh.ruff"
     },
     "terminal.integrated.gpuAcceleration": "off",
