@@ -46,9 +46,7 @@ from mx_bluesky.common.parameters.constants import (
     PlanGroupCheckpointConstants,
     PlanNameConstants,
 )
-from mx_bluesky.common.parameters.rotation import (
-    SingleRotationScan,
-)
+from mx_bluesky.common.parameters.rotation import SingleRotationScan
 from mx_bluesky.common.utils.log import LOGGER
 
 READING_DUMP_FILENAME = "collection_info.json"
@@ -119,7 +117,7 @@ def single_rotation_plan(
     about a fixed axis - for now this axis is limited to omega.
     Needs additional setup of the sample environment and a wrapper to clean up."""
 
-    composite.jungfrau._writer._path_info.filename = "rotation_scan"  # type: ignore
+    # composite.jungfrau._writer._path_info.filename = "rotation_scan"  # type: ignore
 
     @bpp.set_run_key_decorator(I24PlanNameConstants.SINGLE_ROTATION_SCAN)
     @run_decorator()

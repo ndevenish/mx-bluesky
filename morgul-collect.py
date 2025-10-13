@@ -353,7 +353,9 @@ def rotation(
             f"{PREFIX.beamline_prefix}-EA-JFRAU-01:",
             f"{PREFIX.beamline_prefix}-JUNGFRAU-META:FD:",
             AutoMaxIncrementingPathProvider(
-                PurePath(params.storage_directory), dated=True
+                PurePath(params.storage_directory),
+                filename=params.file_name,
+                dated=True,
             ),  # type: ignore
         )
 
