@@ -352,7 +352,9 @@ def rotation(
         return CommissioningJungfrau(
             f"{PREFIX.beamline_prefix}-EA-JFRAU-01:",
             f"{PREFIX.beamline_prefix}-JUNGFRAU-META:FD:",
-            AutoMaxIncrementingPathProvider(PurePath(params.storage_directory)),  # type: ignore
+            AutoMaxIncrementingPathProvider(
+                PurePath(params.storage_directory), dated=True
+            ),  # type: ignore
         )
 
     async def create_rotation_composite() -> RotationScanComposite:
@@ -395,6 +397,7 @@ def rotation(
         )
 
     asyncio.run(do_plan())
+    # AutoMaxIncrementingPathProvider
 
 
 if __name__ == "__main__":
