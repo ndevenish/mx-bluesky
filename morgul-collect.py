@@ -226,6 +226,9 @@ def darks(
             AutoMaxIncrementingPathProvider(PurePath(storage_directory), dated=True),  # type: ignore
         )
 
+    print(f"{exposure_time.to(ureg.s).to_compact()=}")
+    print(f"{deadtime.to(ureg.s).to_compact()}")
+
     async def do_plan():
         RE = RunEngine()
         with init_devices():
@@ -312,7 +315,8 @@ def rotation(
 
     # Scan width... has two places?
     defaults["scan_width_deg"] = scan_width
-    del defaults["total_scan_width_deg"]
+    if "total_scan_width_deg" in defaults:
+        del defaults["total_scan_width_deg"]
     defaults["rotation_increment_deg"] = rotation_increment
     defaults["storage_directory"] = str(storage_directory)
     defaults["file_name"] = name
@@ -399,6 +403,9 @@ def rotation(
         )
 
     asyncio.run(do_plan())
+
+    print(table)
+
     # AutoMaxIncrementingPathProvider
 
 
