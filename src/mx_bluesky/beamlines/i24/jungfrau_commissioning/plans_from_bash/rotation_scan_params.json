@@ -3,11 +3,13 @@
     "omega_start_deg": 0,
     "rotation_increment_deg": 0.1,
     "shutter_opening_time_s": 0.25,
-    "detector_distance_mm": 200,
+    "detector_distance_mm": 185,
     "storage_directory": "/dls/i24/data/2025/cm40647-4/jungfrau/2025-10-10/test",
     "file_name": "thau",
     "visit": "cm40647-4",
-    "total_scan_width_deg": 360,
-    "transmission_fractions": [0.5],
+    "total_scan_width_deg": 720,
+    "transmission_fractions": [
+        0.5
+    ],
     "parameter_model_version": "5.0.0"
 }

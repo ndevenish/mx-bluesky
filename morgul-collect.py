@@ -4,7 +4,9 @@ import asyncio
 import importlib
 import json
 import socket
+import subprocess
 import sys
+import time
 from collections.abc import Callable
 from decimal import Decimal, InvalidOperation
 from pathlib import Path, PurePath
@@ -136,11 +138,11 @@ def pedestals(
     ] = DEFAULT_STORAGE,
     pedestal_loops: Annotated[
         int, typer.Argument(metavar="N_LOOPS", help="Number of pedestal loops")
-    ] = 20,
+    ] = 200,
     pedestal_frames: Annotated[
         int,
         typer.Argument(metavar="N_FRAMES", help="Number of frames per pedestal loop."),
-    ] = 200,
+    ] = 20,
     period: Annotated[
         pint.Quantity | None,
         typer.Option(
@@ -277,6 +279,15 @@ def rotation(
             metavar="FRAC",
         ),
     ] = None,
+    distance: Annotated[
+        pint.Quantity | None,
+        typer.Option(
+            "-d",
+            "--distance",
+            help="Detector distance, in mm",
+            parser=parse_quantity("mm", dimensionality="[length]"),
+        ),
+    ] = None,
     scan_width: Annotated[
         Decimal,
         typer.Option(
@@ -312,6 +323,8 @@ def rotation(
         defaults["transmission_fractions"] = [transmission.to("").m]
     if exposure_time is not None:
         defaults["exposure_time_s"] = exposure_time.to("s").m
+    if distance is not None:
+        defaults["detector_distance_mm"] = distance.to("mm").m
 
     # Scan width... has two places?
     defaults["scan_width_deg"] = scan_width
@@ -343,6 +356,10 @@ def rotation(
     table.add_row(
         "Exposure time",
         f"{ureg.Quantity(params.exposure_time_s, ureg.s).to_compact():~}",
+    )
+    table.add_row(
+        "Detector Distance",
+        f"{ureg.Quantity(params.detector_distance_mm, ureg.mm).to_compact():~}",
     )
     print(table)
     if dry_run:
@@ -407,6 +424,86 @@ def rotation(
     print(table)
 
     # AutoMaxIncrementingPathProvider
+
+
+# import re
+
+# def _get_highest_number_from(path: Path) -> int:
+#     highest_number = 0
+#     candidates = [
+#         x for x in path.iterdir() if x.is_dir() and re.match(r"^\d+_", x.name)
+#     ]
+#     if candidates:
+#         highest_number = max(
+#             int(x.name.split("_", maxsplit=1)[0]) for x in candidates
+#         )
+#     print(f"Found highest existing number: {highest_number} in {path}")
+#     return highest_number
+
+import shlex
+
+
+def run(*args):
+    cmd = [str(x) for x in args]
+    print("+ " + shlex.join(cmd))
+    subprocess.run(cmd, check=True)
+
+
+@app.command()
+def fudge_darks(
+    exposure_time: Annotated[
+        pint.Quantity,
+        typer.Argument(
+            parser=parse_quantity("s", dimensionality="[time]"),
+            metavar="TIME",
+            help="Exposure time per frame. Either seconds, or a shorthand e.g. '1ms'",
+        ),
+    ],
+    storage_directory: Annotated[
+        Path, typer.Option("-o", "--output", help="Output directory")
+    ] = DEFAULT_STORAGE,
+    gainmode: GainMode = GainMode.DYNAMIC,
+    frames: Annotated[int, typer.Argument()] = 1000,
+    period: Annotated[
+        pint.Quantity | None,
+        typer.Option(
+            "-p",
+            "--period",
+            parser=parse_quantity("s", dimensionality="[time]"),
+            metavar="TIME",
+            help="Separately specified period from exposure time. If set, this will be used as the gap between frames, instead of defaulting to the same as exposure time.",
+        ),
+    ] = None,
+    raw: bool = True,
+):
+    """Collect dark images, in a specific gain mode"""
+    str_exp = f"{exposure_time:~}".replace(" ", "").replace("µ", "u")
+    file_name = f"dark_{str_exp}_{str(gainmode).lower()}" + ("_raw" if raw else "")
+    provider = AutoMaxIncrementingPathProvider(
+        str(storage_directory),
+        filename=file_name,
+        dated=True,
+    )
+
+    target_info = provider()
+    target = Path(target_info.directory_path) / target_info.filename
+    print(target)
+    run("morgul", "set", "path", target.parent)
+    run("morgul", "set", "name", target.name)
+    run("morgul", "set", "frames", frames)
+    run("sls_detector_put", "frames", frames)
+    run("sls_detector_put", "exptime", f"{exposure_time.to(ureg.s).m:.6f}")
+    if period:
+        run("sls_detector_put", "period", f"{period.to(ureg.s).m:.6f}")
+    if raw:
+        run("sls_detector_put", "rx_jsonpara", "raw", "true")
+    else:
+        run("sls_detector_put", "rx_jsonpara", "raw")
+    run("sls_detector_put", "gainmode", str(gainmode).lower())
+
+    run("morgul", "get")
+    run("sls_detector_acquire")
+    time.sleep(10)
 
 
 if __name__ == "__main__":
