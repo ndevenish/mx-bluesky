@@ -4,6 +4,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from bluesky.run_engine import RunEngine
 from bluesky.simulators import RunEngineSimulator, assert_message_and_return_remaining
+from dodal.beamlines import i24
+from dodal.beamlines.i24 import JUNGFRAU_FILENAME
 from dodal.devices.beamlines.i24.aperture import AperturePositions
 from dodal.devices.beamlines.i24.beamstop import BeamstopPositions
 from dodal.devices.beamlines.i24.dual_backlight import BacklightPositions
@@ -83,6 +85,43 @@ def test_a_sweep_of_no_images_is_rejected(
             rotation_increment_per_image_deg=rotation_increment_per_image_deg,
             scan_width_deg=scan_width_deg,
         )
+
+
+@patch(
+    "mx_bluesky.beamlines.i24.jungfrau_commissioning.experiment_plans.rotation_scan_plan._cleanup_plan",
+    new=MagicMock(),
+)
+@patch(
+    "mx_bluesky.beamlines.i24.jungfrau_commissioning.experiment_plans.rotation_scan_plan.setup_zebra_for_rotation",
+    new=MagicMock(),
+)
+@patch(
+    "mx_bluesky.beamlines.i24.jungfrau_commissioning.experiment_plans.rotation_scan_plan.set_up_beamline_for_rotation",
+    new=MagicMock(),
+)
+@patch(
+    "mx_bluesky.beamlines.i24.jungfrau_commissioning.experiment_plans.rotation_scan_plan.fly_jungfrau",
+    new=MagicMock(),
+)
+def test_the_requested_filename_reaches_the_jungfrau_filewriter(
+    rotation_composite: RotationScanComposite, run_engine: RunEngine, tmp_path
+):
+    """i24 writes jungfrau data without numtracker, so nothing else carries the name the
+    plan was given as far as the filewriter, and every collection is called "jungfrau"."""
+    rotation_composite.jungfrau.writer.final_path = tmp_path
+    set_mock_attr(
+        rotation_composite.zebra.pc.arm,
+        "set",
+        MagicMock(side_effect=lambda _: completed_status()),
+    )
+    params = get_good_single_rotation_params(tmp_path)
+    params.file_name = "a_named_collection"
+    JUNGFRAU_FILENAME.filename = "jungfrau"
+
+    run_engine(single_rotation_plan(rotation_composite, params))
+
+    # What the writer asks for when the jungfrau is prepared.
+    assert i24.path_provider()().filename == "a_named_collection"
 
 
 @patch(

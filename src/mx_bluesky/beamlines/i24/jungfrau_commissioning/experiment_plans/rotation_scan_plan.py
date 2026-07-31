@@ -4,6 +4,7 @@ import bluesky.plan_stubs as bps
 import bluesky.preprocessors as bpp
 from bluesky.preprocessors import run_decorator
 from bluesky.utils import MsgGenerator
+from dodal.beamlines.i24 import JUNGFRAU_FILENAME
 from dodal.devices.beamlines.i24.aperture import AperturePositions
 from dodal.devices.beamlines.i24.beamstop import BeamstopPositions
 from dodal.devices.beamlines.i24.commissioning_jungfrau import (
@@ -164,6 +165,10 @@ def single_rotation_plan(
     @bpp.set_run_key_decorator(PlanNameConstants.SINGLE_ROTATION_SCAN)
     @run_decorator()
     def _plan_in_run_decorator():
+        # Read by the filewriter when the jungfrau is prepared, below. Only has an
+        # effect while i24 writes without numtracker; see JUNGFRAU_FILENAME.
+        JUNGFRAU_FILENAME.filename = params.file_name
+
         if not params.detector_distance_mm:
             LOGGER.info(
                 f"Using default detector distance of  {DEFAULT_DETECTOR_DISTANCE_MM} mm"
