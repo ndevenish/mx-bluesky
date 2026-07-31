@@ -5,6 +5,8 @@ import bluesky.preprocessors as bpp
 import pytest
 from bluesky.callbacks import CallbackBase
 from bluesky.run_engine import RunEngine
+from dodal.beamlines import i24
+from dodal.beamlines.i24 import JUNGFRAU_FILENAME
 from dodal.devices.beamlines.i24.commissioning_jungfrau import (
     CommissioningJungfrauDetector,
 )
@@ -16,6 +18,7 @@ from ophyd_async.fastcs.jungfrau import (
 )
 
 from mx_bluesky.beamlines.i24.jungfrau_commissioning.experiment_plans.do_darks import (
+    do_non_pedestal_darks,
     do_pedestal_darks,
 )
 
@@ -116,3 +119,37 @@ async def test_jungfrau_unstage_on_error(
     with pytest.raises(FakeError):
         run_engine(test_plan())
     assert jungfrau.unstage.call_count == 1  # type: ignore
+
+
+@pytest.mark.parametrize(
+    "plan, requested_name",
+    [
+        (
+            lambda name, jf: do_pedestal_darks(filename=name, jungfrau=jf),
+            "a_named_pedestal",
+        ),
+        (
+            lambda name, jf: do_non_pedestal_darks(
+                GainMode.DYNAMIC, filename=name, jungfrau=jf
+            ),
+            "a_named_dark",
+        ),
+    ],
+)
+@patch(
+    "mx_bluesky.beamlines.i24.jungfrau_commissioning.experiment_plans.do_darks.fly_jungfrau",
+    new=MagicMock(),
+)
+def test_the_requested_filename_reaches_the_jungfrau_filewriter(
+    plan,
+    requested_name: str,
+    jungfrau: CommissioningJungfrauDetector,
+    run_engine: RunEngine,
+):
+    """i24 writes jungfrau data without numtracker, so nothing else carries the name the
+    plan was given as far as the filewriter."""
+    JUNGFRAU_FILENAME.filename = "jungfrau"
+
+    run_engine(plan(requested_name, jungfrau))
+
+    assert i24.path_provider()().filename == requested_name
