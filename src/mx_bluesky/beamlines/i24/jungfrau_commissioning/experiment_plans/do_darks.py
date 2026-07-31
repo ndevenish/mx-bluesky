@@ -1,6 +1,7 @@
 import bluesky.preprocessors as bpp
 from bluesky import plan_stubs as bps
 from bluesky.utils import MsgGenerator
+from dodal.beamlines.i24 import JUNGFRAU_FILENAME
 from dodal.common import inject
 from dodal.devices.beamlines.i24.commissioning_jungfrau import (
     CommissioningJungfrauDetector,
@@ -80,6 +81,11 @@ def do_pedestal_darks(
             log_on_percentage_prefix="Jungfrau pedestal dynamic gain mode darks triggers received",
         )
 
+    # Read by the filewriter when the jungfrau is prepared, inside the plan below. Set
+    # out here so it cannot land after staging. Only has an effect while i24 writes
+    # without numtracker; see JUNGFRAU_FILENAME.
+    JUNGFRAU_FILENAME.filename = filename
+
     yield from _do_decorated_plan()
 
 
@@ -122,5 +128,10 @@ def do_non_pedestal_darks(
             wait=True,
             log_on_percentage_prefix=f"Jungfrau {gain_mode} gain mode darks triggers received",
         )
+
+    # Read by the filewriter when the jungfrau is prepared, inside the plan below. Set
+    # out here so it cannot land after staging. Only has an effect while i24 writes
+    # without numtracker; see JUNGFRAU_FILENAME.
+    JUNGFRAU_FILENAME.filename = filename
 
     yield from _do_decorated_plan()
