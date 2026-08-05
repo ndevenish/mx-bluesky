@@ -81,6 +81,7 @@ def write_userlog(
         Pump status \t{parameters.pump_repeat}\n
         Pump exp time \t{parameters.laser_dwell_s}\n
         Pump delay \t{parameters.laser_delay_s}\n
+        Checkerboard \t{parameters.checker_pattern}\n
     """
     with open(userlog_path / userlog_fid, "w") as f:
         f.write(text)
