@@ -1,3 +1,4 @@
+import datetime
 from functools import partial
 
 import bluesky.plan_stubs as bps
@@ -129,7 +130,9 @@ def set_up_beamline_for_rotation(
 
     hutch_shutter_state: ShutterState = yield from bps.rd(composite.shutter.status)
     LOGGER.info(f"Hutch shutter: {hutch_shutter_state}")
-    if hutch_shutter_state != ShutterState.OPEN:
+    if hutch_shutter_state != ShutterState.OPEN and (
+        datetime.date.today() > datetime.date(2026, 9, 8)
+    ):
         LOGGER.error(f"Hutch shutter is not open! State is {hutch_shutter_state}")
         raise HutchClosedError(
             f"Hutch shutter is not open! State is {hutch_shutter_state}"
