@@ -11,6 +11,7 @@ from dodal.devices.beamlines.i24.commissioning_jungfrau import (
 )
 from dodal.devices.beamlines.i24.dcm import DCM
 from dodal.devices.beamlines.i24.dual_backlight import DualBacklight
+from dodal.devices.beamlines.i24.focus_mirrors import FocusMirrorsMode
 from dodal.devices.beamlines.i24.vgonio import VerticalGoniometer
 from dodal.devices.hutch_shutter import InterlockedHutchShutter
 from dodal.devices.motors import YZStage
@@ -44,6 +45,7 @@ def test_run_jf_rotation(
     synchrotron: Synchrotron,
     shutter: InterlockedHutchShutter,
     sample_shutter: MXZebraShutter,
+    mirrors: FocusMirrorsMode,
     run_engine: RunEngine,
 ):
     composite = RotationScanComposite(
@@ -59,6 +61,7 @@ def test_run_jf_rotation(
         detector_motion=detector_stage,
         backlight=backlight,
         dcm=dcm,
+        focus_mirrors=mirrors,
     )
     with patch(
         "mx_bluesky.beamlines.i24.web_gui_plans.jungfrau_plans.rotation_scan_plan",

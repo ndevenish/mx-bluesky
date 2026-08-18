@@ -27,6 +27,10 @@ from mx_bluesky.beamlines.i24.jungfrau_commissioning.callbacks.metadata_writer i
 from mx_bluesky.beamlines.i24.jungfrau_commissioning.composites import (
     RotationScanComposite,
 )
+from mx_bluesky.beamlines.i24.jungfrau_commissioning.plan_stubs.ispyb import (
+    complete_rotation_data_collection,
+    create_rotation_data_collection,
+)
 from mx_bluesky.beamlines.i24.jungfrau_commissioning.plan_stubs.plan_utils import (
     JF_COMPLETE_GROUP,
     fly_jungfrau,
@@ -165,6 +169,8 @@ def single_rotation_plan(
     about a fixed axis - for now this axis is limited to omega.
     Needs additional setup of the sample environment and a wrapper to clean up."""
 
+    start_time = datetime.datetime.now().astimezone()
+
     @bpp.set_run_key_decorator(PlanNameConstants.SINGLE_ROTATION_SCAN)
     @run_decorator()
     def _plan_in_run_decorator():
@@ -275,18 +281,38 @@ def single_rotation_plan(
                 read_hardware_after_prepare_plan=read_hardware_partial,
             )
 
-            LOGGER.info("Executing rotation scan")
-            yield from bps.rel_set(
-                axis,
-                motion_values.distance_to_move_deg,
-                wait=False,
-                group=JF_COMPLETE_GROUP,
+            # Before moving omega, so that a sweep ISPyB has no record of is called off
+            # rather than collected and lost. The jungfrau has been prepared by now,
+            # which is what settles where the data is about to be written.
+            dcid = yield from create_rotation_data_collection(
+                composite, params, start_time
             )
 
-            LOGGER.info(
-                "Waiting for omega to finish moving and for Jungfrau to receive correct number of triggers"
+            def _sweep():
+                LOGGER.info("Executing rotation scan")
+                yield from bps.rel_set(
+                    axis,
+                    motion_values.distance_to_move_deg,
+                    wait=False,
+                    group=JF_COMPLETE_GROUP,
+                )
+
+                LOGGER.info(
+                    "Waiting for omega to finish moving and for Jungfrau to receive correct number of triggers"
+                )
+                yield from bps.wait(group=JF_COMPLETE_GROUP)
+
+            def _mark_cancelled(exception: Exception):
+                yield from complete_rotation_data_collection(dcid, aborted=True)
+
+            def _mark_successful():
+                yield from complete_rotation_data_collection(dcid, aborted=False)
+
+            yield from bpp.contingency_wrapper(
+                _sweep(),
+                except_plan=_mark_cancelled,
+                else_plan=_mark_successful,
             )
-            yield from bps.wait(group=JF_COMPLETE_GROUP)
 
         yield from bpp.finalize_wrapper(
             _rotation_scan_plan(motion_values, composite),

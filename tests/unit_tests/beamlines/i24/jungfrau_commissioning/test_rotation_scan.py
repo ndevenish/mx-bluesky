@@ -13,6 +13,7 @@ from dodal.devices.beamlines.i24.dual_backlight import BacklightPositions
 from dodal.devices.hutch_shutter import ShutterState
 from ophyd_async.core import completed_status, set_mock_value
 
+from mx_bluesky.beamlines.i24.dcserver import DCServerError
 from mx_bluesky.beamlines.i24.jungfrau_commissioning.experiment_plans.rotation_scan_plan import (
     DEFAULT_DETECTOR_DISTANCE_MM,
     JF_DET_STAGE_Y_POSITION_MM,
@@ -121,6 +122,50 @@ def test_the_requested_filename_reaches_the_jungfrau_filewriter(
 
     # What the writer asks for when the jungfrau is prepared.
     assert i24.path_provider()().filename == "a_named_collection"
+
+
+@patch(
+    "mx_bluesky.beamlines.i24.jungfrau_commissioning.experiment_plans.rotation_scan_plan.setup_zebra_for_rotation"
+)
+@patch(
+    "mx_bluesky.beamlines.i24.jungfrau_commissioning.experiment_plans.rotation_scan_plan.calculate_motion_profile"
+)
+@patch(
+    "mx_bluesky.beamlines.i24.jungfrau_commissioning.experiment_plans.rotation_scan_plan.set_up_beamline_for_rotation"
+)
+@patch(
+    "mx_bluesky.beamlines.i24.jungfrau_commissioning.experiment_plans.rotation_scan_plan.fly_jungfrau"
+)
+async def test_a_sweep_that_cannot_be_deposited_is_called_off_before_it_moves(
+    mock_fly: MagicMock,
+    mock_setup_beamline: MagicMock,
+    mock_calc_motion_profile: MagicMock,
+    mock_setup_zebra: MagicMock,
+    run_engine: RunEngine,
+    tmp_path,
+    rotation_composite: RotationScanComposite,
+    ispyb_deposition,
+):
+    """A collection ISPyB has no record of is not worth taking, and the deposition is
+    made early enough to stop it - so omega must never start turning."""
+    params = get_good_single_rotation_params(tmp_path)
+    mock_calc_motion_profile.return_value = calculate_motion_profile(params, 1, 1)
+    rotation_composite.zebra.pc.arm.set = MagicMock(
+        side_effect=lambda _: completed_status()
+    )
+    omega_moves = MagicMock(side_effect=lambda _: completed_status())
+    rotation_composite.vgonio.omega.set = omega_moves
+    ispyb_deposition.create.side_effect = DCServerError("the server said no")
+
+    with pytest.raises(DCServerError, match="the server said no"):
+        run_engine(single_rotation_plan(rotation_composite, params))
+
+    ispyb_deposition.create.assert_called_once()
+    # Only the move to the start angle, never the sweep itself.
+    omega_moves.assert_called_once_with(
+        calculate_motion_profile(params, 1, 1).start_motion_deg
+    )
+    ispyb_deposition.complete.assert_not_called()
 
 
 @patch(
