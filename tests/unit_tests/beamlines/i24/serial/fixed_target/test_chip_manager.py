@@ -26,7 +26,7 @@ from mx_bluesky.beamlines.i24.serial.fixed_target.i24ssx_chip_manager_py3v1 impo
     set_pmac_strings_for_cs,
     upload_chip_map_to_geobrick,
 )
-from mx_bluesky.beamlines.i24.serial.setup_beamline import Eiger
+from mx_bluesky.beamlines.i24.serial.parameters.detector import EIGER
 
 from ..conftest import fake_generator
 
@@ -90,7 +90,7 @@ def test_read_parameters(
 ):
     fake_check.return_value = False
     mock_attenuator = MagicMock()
-    fake_det.side_effect = [fake_generator(Eiger())]
+    fake_det.side_effect = [fake_generator(EIGER)]
     fake_rd.side_effect = [fake_generator(0.3)]
     mock_read_visit.return_value = Path("/path/to/fake/visit")
     with patch(

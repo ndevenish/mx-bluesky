@@ -17,12 +17,13 @@ from mx_bluesky.beamlines.i24.dcserver import (  # noqa: F401  re-exported for c
 from mx_bluesky.beamlines.i24.serial.fixed_target.ft_utils import PumpProbeSetting
 from mx_bluesky.beamlines.i24.serial.log import SSX_LOGGER
 from mx_bluesky.beamlines.i24.serial.parameters import (
+    SERIAL_DETECTORS,
     BeamSettings,
     DetectorName,
     ExtruderParameters,
     FixedTargetParameters,
+    SerialDetector,
 )
-from mx_bluesky.beamlines.i24.serial.setup_beamline import Detector, Eiger
 
 # Collection start/end script to kick off analysis
 COLLECTION_START_SCRIPT = "/dls_sw/i24/scripts/RunAtStartOfCollect-i24-ssx.sh"
@@ -50,7 +51,7 @@ def read_beam_info_from_hardware(
     wavelength = yield from bps.rd(dcm.wavelength_in_a)
     beamsize_x = yield from bps.rd(mirrors.beam_size_x)
     beamsize_y = yield from bps.rd(mirrors.beam_size_y)
-    pixel_size = Eiger().pixel_size_mm
+    pixel_size = SERIAL_DETECTORS[detector_name].pixel_size_mm
     beam_center_x = yield from bps.rd(beam_center.beam_x)
     beam_center_y = yield from bps.rd(beam_center.beam_y)
     return BeamSettings(
@@ -148,13 +149,12 @@ class DCID:
         expt_params: ExtruderParameters | FixedTargetParameters,
     ):
         self.parameters = expt_params
-        self.detector: Detector
-        # Handle case of string literal
-        match expt_params.detector_name:
-            case "eiger":
-                self.detector = Eiger()
-            case _:
-                raise ValueError("Unknown detector:", expt_params.detector_name)
+        self.detector: SerialDetector
+        # detector_name may arrive as a bare string rather than a DetectorName
+        try:
+            self.detector = SERIAL_DETECTORS[DetectorName(expt_params.detector_name)]
+        except ValueError as e:
+            raise ValueError("Unknown detector:", expt_params.detector_name) from e
 
         self.server = server or get_dcserver_url()
         self.emit_errors = emit_errors
@@ -203,7 +203,7 @@ class DCID:
 
             data = {
                 "detectorDistance": self.parameters.detector_distance_mm,
-                "detectorId": self.detector.id,
+                "detectorId": self.detector.ispyb_id,
                 "exposureTime": self.parameters.exposure_time_s,
                 "fileTemplate": file_template,
                 "imageDirectory": image_dir,
@@ -363,14 +363,16 @@ class DCID:
             SSX_LOGGER.warning("Error completing DCID: %s (%s)", e, resp_str)
 
 
-def get_resolution(detector: Detector, distance: float, wavelength: float) -> float:
+def get_resolution(
+    detector: SerialDetector, distance: float, wavelength: float
+) -> float:
     """ Calculate the inscribed resolution for detector.
 
     This assumes perfectly centered beam as I don't know where to extract the beam \
     position parameters yet.
 
     Args:
-        detector (Detector): Detector instance, Eiger().
+        detector (SerialDetector): The detector in use.
         distance (float): Distance to detector, in mm.
         wavelength (float): Beam wavelength, in Å.
 

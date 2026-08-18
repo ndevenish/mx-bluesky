@@ -19,7 +19,7 @@ from mx_bluesky.beamlines.i24.serial.parameters import (
     ExtruderParameters,
 )
 from mx_bluesky.beamlines.i24.serial.parameters.constants import SSXType
-from mx_bluesky.beamlines.i24.serial.setup_beamline import Eiger
+from mx_bluesky.beamlines.i24.serial.parameters.detector import EIGER
 
 
 def test_read_beam_info_from_hardware(
@@ -47,7 +47,7 @@ def test_get_resolution():
     distance = 100
     wavelength = 0.649
 
-    eiger_resolution = get_resolution(Eiger(), distance, wavelength)
+    eiger_resolution = get_resolution(EIGER, distance, wavelength)
 
     assert eiger_resolution == 0.78
 
@@ -64,7 +64,7 @@ def test_generate_dcid_for_eiger(
         expt_params=dummy_params_ex,
     )
 
-    assert isinstance(test_dcid.detector, Eiger)
+    assert test_dcid.detector is EIGER
     assert isinstance(test_dcid.parameters, ExtruderParameters)
 
     beam_settings = BeamSettings(

@@ -12,12 +12,14 @@ from dodal.devices.motors import YZStage
 
 from mx_bluesky.beamlines.i24.serial.log import SSX_LOGGER
 from mx_bluesky.beamlines.i24.serial.parameters import SSXType
+from mx_bluesky.beamlines.i24.serial.parameters.detector import EIGER, SerialDetector
 from mx_bluesky.beamlines.i24.serial.setup_beamline import pv
 from mx_bluesky.beamlines.i24.serial.setup_beamline.ca import caget, caput
-from mx_bluesky.beamlines.i24.serial.setup_beamline.pv_abstract import (
-    Detector,
-    Eiger,
-)
+
+# Stage y below which the Eiger is the detector in the beam. Telling more than one
+# detector apart needs more than a single threshold, see
+# https://github.com/DiamondLightSource/mx_bluesky/issues/51
+EIGER_DET_Y_THRESHOLD_MM = 220  # 70.0
 
 EXPT_TYPE_DETECTOR_PVS = {
     SSXType.FIXED: pv.ioc13_gp101,
@@ -36,13 +38,13 @@ class UnknownDetectorTypeError(Exception):
     pass
 
 
-def get_detector_type(detector_stage: YZStage) -> Generator[Msg, None, Detector]:
+def get_detector_type(detector_stage: YZStage) -> Generator[Msg, None, SerialDetector]:
     det_y = yield from bps.rd(detector_stage.y)
     # YZStage should also be used for this.
     # This should be part of https://github.com/DiamondLightSource/mx_bluesky/issues/51
-    if float(det_y) < Eiger.det_y_threshold:
+    if float(det_y) < EIGER_DET_Y_THRESHOLD_MM:
         SSX_LOGGER.info("Eiger detector in use.")
-        return Eiger()
+        return EIGER
     else:
         SSX_LOGGER.error("Detector not found.")
         raise UnknownDetectorTypeError("Detector not found.")
@@ -84,7 +86,7 @@ def setup_detector_stage(
     det_type_pv = EXPT_TYPE_DETECTOR_PVS[expt_type]
     requested_detector = _get_requested_detector(det_type_pv)
     SSX_LOGGER.info(f"Requested detector: {requested_detector}.")
-    det_y_target = Eiger.det_y_target
+    det_y_target = EIGER.det_y_target_mm
 
     yield from _move_detector_stage(detector_stage, det_y_target)
     caput(det_type_pv, requested_detector)

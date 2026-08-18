@@ -19,7 +19,7 @@ from mx_bluesky.beamlines.i24.serial.extruder.i24ssx_extruder_collect_py3v2 impo
 )
 from mx_bluesky.beamlines.i24.serial.parameters import BeamSettings, ExtruderParameters
 from mx_bluesky.beamlines.i24.serial.parameters.constants import DetectorName
-from mx_bluesky.beamlines.i24.serial.setup_beamline import Eiger
+from mx_bluesky.beamlines.i24.serial.parameters.detector import EIGER
 
 from ..conftest import TEST_LUT, fake_generator
 
@@ -84,7 +84,7 @@ def test_read_parameters(
     run_engine,
 ):
     mock_attenuator = MagicMock()
-    fake_det.side_effect = [fake_generator(Eiger())]
+    fake_det.side_effect = [fake_generator(EIGER)]
     fake_rd.side_effect = [fake_generator(0.3)]
     with patch(
         "mx_bluesky.beamlines.i24.serial.extruder.i24ssx_extruder_collect_py3v2.ExtruderParameters",
@@ -113,7 +113,7 @@ def test_initialise_extruder(
     run_engine,
 ):
     fake_caget.return_value = "/path/to/visit"
-    fake_det.side_effect = [fake_generator(Eiger())]
+    fake_det.side_effect = [fake_generator(EIGER)]
     run_engine(initialise_extruder(detector_stage))
     assert fake_caput.call_count == 9
     assert fake_caget.call_count == 1
@@ -127,8 +127,8 @@ async def test_enterhutch(detector_stage, run_engine):
 @pytest.mark.parametrize(
     "laser_mode, det_type, expected_in1, expected_out",
     [
-        ("laseron", Eiger(), "Yes", I24_ZEBRA_MAPPING.sources.SOFT_IN3),
-        ("laseroff", Eiger(), "No", I24_ZEBRA_MAPPING.sources.DISCONNECT),
+        ("laseron", EIGER, "Yes", I24_ZEBRA_MAPPING.sources.SOFT_IN3),
+        ("laseroff", EIGER, "No", I24_ZEBRA_MAPPING.sources.DISCONNECT),
     ],
 )
 @patch(

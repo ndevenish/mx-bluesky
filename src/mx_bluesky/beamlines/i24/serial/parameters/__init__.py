@@ -1,4 +1,9 @@
 from mx_bluesky.beamlines.i24.serial.parameters.constants import DetectorName, SSXType
+from mx_bluesky.beamlines.i24.serial.parameters.detector import (
+    BEAM_CENTER_LUT_FILES,
+    SERIAL_DETECTORS,
+    SerialDetector,
+)
 from mx_bluesky.beamlines.i24.serial.parameters.experiment_parameters import (
     BeamSettings,
     ChipDescription,
@@ -14,6 +19,9 @@ from mx_bluesky.beamlines.i24.serial.parameters.utils import (
 __all__ = [
     "SSXType",
     "DetectorName",
+    "SerialDetector",
+    "SERIAL_DETECTORS",
+    "BEAM_CENTER_LUT_FILES",
     "BeamSettings",
     "ExtruderParameters",
     "ChipDescription",

@@ -2,7 +2,6 @@ from enum import StrEnum
 from os import environ
 from pathlib import Path
 
-from mx_bluesky.beamlines.i24.beam_center import LUT_FILES_PATH
 from mx_bluesky.beamlines.i24.serial.log import _read_visit_directory_from_file
 
 
@@ -13,11 +12,7 @@ class SSXType(StrEnum):
 
 class DetectorName(StrEnum):
     EIGER = "eiger"
-
-
-BEAM_CENTER_LUT_FILES = {
-    DetectorName.EIGER: LUT_FILES_PATH / "DetDistToBeamXYConverterE9M.txt",
-}
+    JUNGFRAU = "jungfrau"
 
 
 OAV_CONFIG_FILES = {

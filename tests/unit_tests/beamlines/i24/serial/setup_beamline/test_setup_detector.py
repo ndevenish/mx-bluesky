@@ -6,7 +6,7 @@ from dodal.devices.motors import YZStage
 from ophyd_async.core import set_mock_value
 
 from mx_bluesky.beamlines.i24.serial.parameters.constants import SSXType
-from mx_bluesky.beamlines.i24.serial.setup_beamline import Eiger
+from mx_bluesky.beamlines.i24.serial.parameters.detector import EIGER
 from mx_bluesky.beamlines.i24.serial.setup_beamline.setup_detector import (
     EXPT_TYPE_DETECTOR_PVS,
     DetRequest,
@@ -25,7 +25,7 @@ def test_get_detector_type(run_engine, detector_stage: YZStage):
 @patch("mx_bluesky.beamlines.i24.serial.setup_beamline.setup_detector.caget")
 def test_get_requested_detector(fake_caget):
     fake_caget.return_value = "0"
-    assert _get_requested_detector("some_pv") == Eiger.name
+    assert _get_requested_detector("some_pv") == EIGER.name
 
 
 @patch("mx_bluesky.beamlines.i24.serial.setup_beamline.setup_detector.caget")
@@ -40,7 +40,7 @@ def test_get_requested_detector_raises_error_for_invalid_value(fake_caget):
 @pytest.mark.parametrize(
     "requested_detector_value, serial_type, detector_target",
     [
-        (DetRequest.eiger.value, SSXType.FIXED, Eiger.det_y_target),
+        (DetRequest.eiger.value, SSXType.FIXED, EIGER.det_y_target_mm),
     ],
 )
 async def test_setup_detector_stage(

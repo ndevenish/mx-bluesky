@@ -34,10 +34,10 @@ from mx_bluesky.beamlines.i24.serial.log import (
     _read_visit_directory_from_file,
     log_on_entry,
 )
-from mx_bluesky.beamlines.i24.serial.parameters import ExtruderParameters
-from mx_bluesky.beamlines.i24.serial.parameters.constants import (
+from mx_bluesky.beamlines.i24.serial.parameters import (
     BEAM_CENTER_LUT_FILES,
     DetectorName,
+    ExtruderParameters,
 )
 from mx_bluesky.beamlines.i24.serial.setup_beamline import (
     caget,
