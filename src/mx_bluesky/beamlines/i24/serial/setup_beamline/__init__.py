@@ -1,13 +1,12 @@
 from . import pv, setup_beamline
 from .ca import caget, cagetstring, caput
-from .pv_abstract import Detector, Eiger
+from .pv_abstract import EigerPVs
 
 __all__ = [
     "caget",
     "cagetstring",
     "caput",
-    "Detector",
-    "Eiger",
+    "EigerPVs",
     "pv",
     "setup_beamline",
 ]

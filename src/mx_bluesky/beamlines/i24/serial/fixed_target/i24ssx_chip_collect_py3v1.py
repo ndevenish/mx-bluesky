@@ -36,9 +36,9 @@ from mx_bluesky.beamlines.i24.serial.fixed_target.i24ssx_chip_manager_py3v1 impo
     upload_chip_map_to_geobrick,
 )
 from mx_bluesky.beamlines.i24.serial.log import SSX_LOGGER, log_on_entry
-from mx_bluesky.beamlines.i24.serial.parameters import FixedTargetParameters
-from mx_bluesky.beamlines.i24.serial.parameters.constants import (
+from mx_bluesky.beamlines.i24.serial.parameters import (
     BEAM_CENTER_LUT_FILES,
+    FixedTargetParameters,
 )
 from mx_bluesky.beamlines.i24.serial.setup_beamline import caget, cagetstring, caput, pv
 from mx_bluesky.beamlines.i24.serial.setup_beamline import setup_beamline as sup

@@ -3,10 +3,7 @@ from abc import abstractmethod
 from pathlib import Path
 
 import numpy as np
-from dodal.devices.detector.det_dim_constants import (
-    EIGER2_X_9M_SIZE,
-    DetectorSizeConstants,
-)
+from dodal.devices.detector.det_dim_constants import DetectorSizeConstants
 from pydantic import BaseModel, ConfigDict, computed_field, field_validator
 
 from mx_bluesky.beamlines.i24.serial.fixed_target.ft_utils import (
@@ -18,6 +15,7 @@ from mx_bluesky.beamlines.i24.serial.parameters.constants import (
     DetectorName,
     SSXType,
 )
+from mx_bluesky.beamlines.i24.serial.parameters.detector import SERIAL_DETECTORS
 
 
 class SerialExperiment(BaseModel):
@@ -45,7 +43,7 @@ class SerialExperiment(BaseModel):
 
     @property
     def detector_size_constants(self) -> DetectorSizeConstants:
-        return EIGER2_X_9M_SIZE
+        return SERIAL_DETECTORS[self.detector_name].size_constants
 
 
 class LaserExperiment(BaseModel):
