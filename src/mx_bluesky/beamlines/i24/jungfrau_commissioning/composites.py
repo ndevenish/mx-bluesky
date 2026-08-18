@@ -9,6 +9,7 @@ from dodal.devices.beamlines.i24.commissioning_jungfrau import (
 )
 from dodal.devices.beamlines.i24.dcm import DCM
 from dodal.devices.beamlines.i24.dual_backlight import DualBacklight
+from dodal.devices.beamlines.i24.focus_mirrors import FocusMirrorsMode
 from dodal.devices.beamlines.i24.vgonio import VerticalGoniometer
 from dodal.devices.hutch_shutter import InterlockedHutchShutter
 from dodal.devices.motors import YZStage
@@ -34,3 +35,4 @@ class RotationScanComposite:
     detector_motion: YZStage
     backlight: DualBacklight
     dcm: DCM
+    focus_mirrors: FocusMirrorsMode

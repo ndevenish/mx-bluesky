@@ -1,3 +1,7 @@
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
+import bluesky.plan_stubs as bps
 import pytest
 from dodal.beamlines import i24
 from dodal.beamlines.i24 import VerticalGoniometer
@@ -9,6 +13,7 @@ from dodal.devices.beamlines.i24.commissioning_jungfrau import (
 )
 from dodal.devices.beamlines.i24.dcm import DCM
 from dodal.devices.beamlines.i24.dual_backlight import DualBacklight
+from dodal.devices.beamlines.i24.focus_mirrors import FocusMirrorsMode
 from dodal.devices.hutch_shutter import InterlockedHutchShutter
 from dodal.devices.interlocks import PSSInterlock
 from dodal.devices.motors import YZStage
@@ -20,6 +25,36 @@ from ophyd_async.core import init_devices
 from mx_bluesky.beamlines.i24.jungfrau_commissioning.experiment_plans.rotation_scan_plan import (
     RotationScanComposite,
 )
+
+TEST_DCID = 4567780
+
+_PLAN = "mx_bluesky.beamlines.i24.jungfrau_commissioning.experiment_plans.rotation_scan_plan"
+
+
+@pytest.fixture(autouse=True)
+def ispyb_deposition():
+    """The ISPyB deposition the rotation plan makes, stubbed out.
+
+    Autouse, so that a test which runs the plan cannot post to a real dcserver by
+    forgetting to say otherwise. Tests of the deposition itself call the stubs directly
+    rather than through the plan.
+    """
+    created = MagicMock(return_value=TEST_DCID)
+    completed = MagicMock()
+
+    def _create(*args, **kwargs):
+        yield from bps.null()
+        return created(*args, **kwargs)
+
+    def _complete(*args, **kwargs):
+        completed(*args, **kwargs)
+        yield from bps.null()
+
+    with (
+        patch(f"{_PLAN}.create_rotation_data_collection", _create),
+        patch(f"{_PLAN}.complete_rotation_data_collection", _complete),
+    ):
+        yield SimpleNamespace(create=created, complete=completed)
 
 
 @pytest.fixture
@@ -38,6 +73,7 @@ def rotation_composite(
     jungfrau: CommissioningJungfrauDetector,
     zebra: Zebra,
     enum_attenuator: EnumFilterAttenuator,
+    mirrors: FocusMirrorsMode,
 ) -> RotationScanComposite:
     with init_devices(mock=True):
         aperture = Aperture("")
@@ -65,6 +101,7 @@ def rotation_composite(
         detector_motion=detector_motion,
         backlight=backlight,
         dcm=dcm,
+        focus_mirrors=mirrors,
     )
 
     return composite
