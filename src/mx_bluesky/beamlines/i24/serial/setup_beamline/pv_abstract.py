@@ -8,36 +8,21 @@ abstract wrapper around them.
 from mx_bluesky.beamlines.i24.serial.setup_beamline import pv
 
 
-class Eiger:
-    id = 94
-    name = "eiger"
+class EigerPVs:
+    """The Eiger PVs the collection plans read back from.
 
-    pixel_size_mm = (0.075, 0.075)
-    image_size_pixels = (3108, 3262)
+    What the plans caput to lives in setup_beamline.eiger for now. Both belong on an
+    ophyd-async device, see https://github.com/DiamondLightSource/mx-bluesky/issues/62.
+    """
 
-    image_size_mm = tuple(
-        round(a * b, 3) for a, b in zip(image_size_pixels, pixel_size_mm, strict=False)
-    )
-
-    # TODO: Move to separate configuration file in daq_configuration #1779
-    det_y_threshold = 220  # 70.0
-    det_y_target = 209  # 59.0
-
-    class PV:
-        detector_distance = pv.eiger_detdist
-        wavelength = pv.eiger_wavelength
-        transmission = "BL24I-EA-PILAT-01:cam1:FilterTransm"
-        filename_rbv = pv.eiger_od_filename_rbv
-        file_name = pv.eiger_od_filename
-        file_path = pv.eiger_od_filepath
-        file_template = None
-        sequence_id = pv.eiger_seq_id
-        beamx = pv.eiger_beamx
-        beamy = pv.eiger_beamy
-        bit_depth = pv.eiger_bitdepthrbv
-
-    def __str__(self) -> str:
-        return self.name
-
-
-Detector = Eiger
+    detector_distance = pv.eiger_detdist
+    wavelength = pv.eiger_wavelength
+    transmission = "BL24I-EA-PILAT-01:cam1:FilterTransm"
+    filename_rbv = pv.eiger_od_filename_rbv
+    file_name = pv.eiger_od_filename
+    file_path = pv.eiger_od_filepath
+    file_template = None
+    sequence_id = pv.eiger_seq_id
+    beamx = pv.eiger_beamx
+    beamy = pv.eiger_beamy
+    bit_depth = pv.eiger_bitdepthrbv

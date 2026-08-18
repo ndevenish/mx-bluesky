@@ -25,6 +25,9 @@ from mx_bluesky.beamlines.i24.serial.parameters.constants import DetectorName
 
 # Detector specific outs
 TTL_EIGER = 1
+# WARNING. This is also the jungfrau's trigger output, see the detector record in
+# parameters/detector.py. The two cannot both be driven, so a jungfrau pump probe
+# collection is not possible as things are currently cabled.
 TTL_LASER = 2
 TTL_FAST_SHUTTER = 4
 
@@ -211,6 +214,8 @@ def setup_zebra_for_extruder_with_pump_probe_plan(
 
     # Set TTL out depending on detector type
     det_ttl = TTL_EIGER
+    # WARNING. TTL 2 is the jungfrau's trigger output as well as the laser's, so this
+    # plan cannot drive both for a jungfrau collection as things are currently cabled.
     laser_ttl = TTL_LASER  # may change with additional detectors
     yield from bps.abs_set(
         zebra.output.out_pvs[det_ttl], zebra.mapping.sources.AND4, group=group

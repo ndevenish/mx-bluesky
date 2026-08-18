@@ -47,13 +47,13 @@ from mx_bluesky.beamlines.i24.serial.parameters import (
     get_chip_format,
 )
 from mx_bluesky.beamlines.i24.serial.parameters.constants import DetectorName
+from mx_bluesky.beamlines.i24.serial.parameters.detector import EIGER
 from mx_bluesky.beamlines.i24.serial.parameters.experiment_parameters import (
     ExtruderParameters,
 )
 from mx_bluesky.beamlines.i24.serial.parameters.utils import EmptyMapError
 from mx_bluesky.beamlines.i24.serial.setup_beamline import pv
 from mx_bluesky.beamlines.i24.serial.setup_beamline.ca import caput
-from mx_bluesky.beamlines.i24.serial.setup_beamline.pv_abstract import Eiger
 from mx_bluesky.beamlines.i24.serial.setup_beamline.setup_detector import (
     _move_detector_stage,
 )
@@ -105,7 +105,7 @@ def gui_move_detector(
     det: Literal["eiger"],
     detector_stage: YZStage = inject("detector_motion"),
 ) -> MsgGenerator:
-    det_y_target = Eiger.det_y_target
+    det_y_target = EIGER.det_y_target_mm
     yield from _move_detector_stage(detector_stage, det_y_target)
     # Make the output readable
     SSX_LOGGER.debug(f"Detector move done, resetting general PV to {det}")
