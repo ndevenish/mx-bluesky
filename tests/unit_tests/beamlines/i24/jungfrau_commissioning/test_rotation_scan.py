@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -322,6 +323,10 @@ async def test_set_up_beamline_for_rotation_success(
     ]
 
 
+@pytest.mark.skipif(
+    datetime.date.today() <= datetime.date(2026, 9, 8),
+    reason="Hutch shutter check is disabled over the shutdown",
+)
 def test_set_up_beamline_for_rotation_error_on_closed_hutch(
     rotation_composite: RotationScanComposite,
     run_engine: RunEngine,
