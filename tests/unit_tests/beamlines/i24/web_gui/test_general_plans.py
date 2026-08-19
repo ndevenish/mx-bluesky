@@ -7,6 +7,7 @@ import pytest
 from dodal.devices.beamlines.i24.dual_backlight import BacklightPositions
 
 from mx_bluesky.beamlines.i24.serial.detector_control import EigerControl
+from mx_bluesky.beamlines.i24.serial.parameters.constants import DetectorName
 from mx_bluesky.beamlines.i24.serial.parameters.utils import EmptyMapError
 from mx_bluesky.beamlines.i24.web_gui_plans.general_plans import (
     gui_gonio_move_on_click,
@@ -197,6 +198,7 @@ def test_setup_tasks_in_gui_run_chip_collection(
                     0.0,
                     0.0,
                     0.0,
+                    DetectorName.EIGER,
                     *device_list,
                 )
             )
@@ -273,7 +275,17 @@ def test_gui_run_extruder_collection(
         ) as patch_set:
             run_engine(
                 gui_run_extruder_collection(
-                    "bar", "protein", 0.1, 100, 1.0, 10, False, 0.0, 0.0, *device_list
+                    "bar",
+                    "protein",
+                    0.1,
+                    100,
+                    1.0,
+                    10,
+                    False,
+                    0.0,
+                    0.0,
+                    DetectorName.EIGER,
+                    *device_list,
                 )
             )
 

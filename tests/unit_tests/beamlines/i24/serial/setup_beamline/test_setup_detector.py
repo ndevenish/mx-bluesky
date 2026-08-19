@@ -6,20 +6,54 @@ from dodal.devices.motors import YZStage
 from ophyd_async.core import set_mock_value
 
 from mx_bluesky.beamlines.i24.serial.parameters.constants import SSXType
-from mx_bluesky.beamlines.i24.serial.parameters.detector import EIGER
+from mx_bluesky.beamlines.i24.serial.parameters.detector import EIGER, JUNGFRAU
 from mx_bluesky.beamlines.i24.serial.setup_beamline.setup_detector import (
     EXPT_TYPE_DETECTOR_PVS,
     DetRequest,
     _get_requested_detector,
     get_detector_type,
+    move_detector_into_beam_plan,
     setup_detector_stage,
 )
 
 
-def test_get_detector_type(run_engine, detector_stage: YZStage):
-    set_mock_value(detector_stage.y.user_readback, -59)
+@pytest.mark.parametrize(
+    "carriage_position, expected_detector",
+    [
+        (-59, EIGER),
+        (EIGER.det_y_target_mm, EIGER),
+        # Where the carriage actually sits during jungfrau commissioning: nearer the
+        # jungfrau's parked position than the eiger's, but not exactly on it.
+        (661.9, JUNGFRAU),
+        (JUNGFRAU.det_y_target_mm, JUNGFRAU),
+    ],
+)
+def test_get_detector_type_is_whichever_is_parked_nearest(
+    carriage_position, expected_detector, run_engine, detector_stage: YZStage
+):
+    set_mock_value(detector_stage.y.user_readback, carriage_position)
     det_type = run_engine(get_detector_type(detector_stage)).plan_result
-    assert det_type.name == "eiger"
+    assert det_type is expected_detector
+
+
+async def test_the_carriage_does_not_move_for_a_detector_already_in_the_beam(
+    run_engine, detector_stage: YZStage
+):
+    set_mock_value(detector_stage.y.user_readback, JUNGFRAU.det_y_target_mm)
+
+    run_engine(move_detector_into_beam_plan(detector_stage, JUNGFRAU))
+
+    assert await detector_stage.y.user_setpoint.get_value() == 0
+
+
+async def test_the_carriage_moves_for_a_detector_that_is_not_in_the_beam(
+    run_engine, detector_stage: YZStage
+):
+    set_mock_value(detector_stage.y.user_readback, EIGER.det_y_target_mm)
+
+    run_engine(move_detector_into_beam_plan(detector_stage, JUNGFRAU))
+
+    assert await detector_stage.y.user_setpoint.get_value() == JUNGFRAU.det_y_target_mm
 
 
 @patch("mx_bluesky.beamlines.i24.serial.setup_beamline.setup_detector.caget")
@@ -41,6 +75,8 @@ def test_get_requested_detector_raises_error_for_invalid_value(fake_caget):
     "requested_detector_value, serial_type, detector_target",
     [
         (DetRequest.eiger.value, SSXType.FIXED, EIGER.det_y_target_mm),
+        (DetRequest.jungfrau.value, SSXType.FIXED, JUNGFRAU.det_y_target_mm),
+        (DetRequest.jungfrau.value, SSXType.EXTRUDER, JUNGFRAU.det_y_target_mm),
     ],
 )
 async def test_setup_detector_stage(

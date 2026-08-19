@@ -56,6 +56,7 @@ from mx_bluesky.beamlines.i24.serial.setup_beamline import (
 from mx_bluesky.beamlines.i24.serial.setup_beamline import setup_beamline as sup
 from mx_bluesky.beamlines.i24.serial.setup_beamline.setup_detector import (
     get_detector_type,
+    move_detector_into_beam_plan,
 )
 from mx_bluesky.beamlines.i24.serial.setup_beamline.setup_zebra_plans import (
     GATE_START,
@@ -223,6 +224,10 @@ def main_extruder_plan(
     yield from sup.setup_beamline_for_collection_plan(
         aperture, backlight, beamstop, wait=True
     )
+
+    # Which detector is in the beam is a question of where the carriage is parked, so
+    # asking for a collection on one is also asking for it to be moved into the beam.
+    yield from move_detector_into_beam_plan(detector_stage, detector_control.detector)
 
     yield from sup.move_detector_stage_to_position_plan(
         detector_stage, parameters.detector_distance_mm
