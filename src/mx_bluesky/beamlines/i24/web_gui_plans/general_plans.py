@@ -138,6 +138,7 @@ def gui_run_chip_collection(
     laser_dwell: float,
     laser_delay: float,
     pre_pump: float,
+    detector: DetectorName = DetectorName.EIGER,
     pmac: PMAC = inject("pmac"),
     zebra: Zebra = inject("zebra"),
     aperture: Aperture = inject("aperture"),
@@ -176,12 +177,11 @@ def gui_run_chip_collection(
         laser_delay (float): delay between laser exposure and collection, in s.
         pre_pump (float): pre-pump exposure time for a pump probe short2 collection,
             ie a pump-in-probe where the collection starts during the pump.
+        detector (DetectorName): which detector to collect on. The carriage is moved to
+            put it in the beam if it is not there already.
     """
     # NOTE still a work in progress, adding to it as the ui grows
     # See progression of https://github.com/DiamondLightSource/mx-daq-ui/issues/3
-    # get_detector_type temporarily disabled as pilatus went away, and for now only eiger in use
-    # for this.
-    # det_type = yield from get_detector_type(detector_stage)
     _format = chip_format if ChipType[chip_type] is ChipType.Custom else None
     chip_params = get_chip_format(ChipType[chip_type], _format)
     if ChipType[chip_type] in [ChipType.Oxford, ChipType.OxfordInner]:
@@ -203,7 +203,7 @@ def gui_run_chip_collection(
         filename=chip_name,
         exposure_time_s=exp_time,
         detector_distance_mm=det_dist,
-        detector_name=DetectorName.EIGER,
+        detector_name=detector,
         num_exposures=n_shots,
         transmission=transmission,
         chip=chip_params,
@@ -262,6 +262,7 @@ def gui_run_extruder_collection(
     pump_probe: bool,
     laser_dwell: float,
     laser_delay: float,
+    detector: DetectorName = DetectorName.EIGER,
     zebra: Zebra = inject("zebra"),
     aperture: Aperture = inject("aperture"),
     backlight: DualBacklight = inject("backlight"),
@@ -286,6 +287,8 @@ def gui_run_extruder_collection(
         pump_probe (bool): pump probe setting.
         laser_dwell (float): laser exposure time for pump probe collections, in s.
         laser_delay (float): delay between laser exposure and collection, in s.
+        detector (DetectorName): which detector to collect on. The carriage is moved to
+            put it in the beam if it is not there already.
     """
     # NOTE. For now setting attenuation here in place of the edms doing a caput
     yield from bps.abs_set(attenuator, transmission, wait=True)
@@ -298,7 +301,7 @@ def gui_run_extruder_collection(
         filename=file_name,
         exposure_time_s=exp_time,
         detector_distance_mm=det_dist,
-        detector_name=DetectorName.EIGER,
+        detector_name=detector,
         transmission=transmission,
         num_images=num_images,
         pump_status=pump_probe,
