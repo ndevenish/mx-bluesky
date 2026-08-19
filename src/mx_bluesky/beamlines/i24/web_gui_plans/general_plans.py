@@ -302,6 +302,12 @@ def gui_run_extruder_collection(
     )
     # Create collection directory
     parameters.collection_directory.mkdir(parents=True, exist_ok=True)
+
+    # How this collection drives its detector
+    detector_control = get_detector_control(
+        parameters.detector_name, dcm, detector_stage
+    )
+
     # DCID - not generated yet
     dcid = DCID(emit_errors=False, expt_params=parameters)
 
@@ -316,6 +322,7 @@ def gui_run_extruder_collection(
         mirrors,
         beam_center_eiger,
         parameters,
+        detector_control,
         dcid,
         start_time,
     )
