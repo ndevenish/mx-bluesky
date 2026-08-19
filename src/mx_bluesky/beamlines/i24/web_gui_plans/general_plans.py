@@ -21,6 +21,7 @@ from dodal.devices.oav.oav_detector import OAVBeamCentreFile
 from dodal.devices.zebra.zebra import Zebra
 
 from mx_bluesky.beamlines.i24.serial.dcid import DCID
+from mx_bluesky.beamlines.i24.serial.detector_control import get_detector_control
 from mx_bluesky.beamlines.i24.serial.extruder.i24ssx_extruder_collect_py3v2 import (
     run_plan_in_wrapper as run_ex_collection_plan,
 )
@@ -220,6 +221,11 @@ def gui_run_chip_collection(
     beam_center_device = beam_center_eiger
     SSX_LOGGER.info("Beam center device ready")
 
+    # How this collection drives its detector
+    detector_control = get_detector_control(
+        parameters.detector_name, dcm, detector_stage
+    )
+
     # DCID instance - do not create yet
     dcid = DCID(emit_errors=False, expt_params=parameters)  # noqa
     SSX_LOGGER.info("DCID created")
@@ -236,6 +242,7 @@ def gui_run_chip_collection(
         mirrors,
         beam_center_device,
         parameters,
+        detector_control,
         dcid,
     )
 
