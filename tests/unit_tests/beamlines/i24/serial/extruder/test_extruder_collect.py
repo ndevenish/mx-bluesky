@@ -7,7 +7,9 @@ from dodal.devices.zebra.zebra import ArmDemand, Zebra
 from ophyd.sim import NullStatus
 from ophyd_async.core import get_mock_put, init_devices, set_mock_value
 
+from mx_bluesky.beamlines.i24.serial.detector_control import AcquisitionMode
 from mx_bluesky.beamlines.i24.serial.extruder.i24ssx_extruder_collect_py3v2 import (
+    collection_aborted_plan,
     collection_complete_plan,
     enter_hutch,
     initialise_extruder,
@@ -52,6 +54,24 @@ def dummy_params():
         transmission=1.0,
         num_images=10,
         pump_status=False,
+    )
+    return params
+
+
+@pytest.fixture
+def dummy_params_with_pump():
+    params = ExtruderParameters(
+        visit=Path("/tmp/dls/i24/extruder/foo"),
+        directory="bar",
+        filename="protein",
+        exposure_time_s=0.1,
+        detector_distance_mm=100,
+        detector_name=DetectorName("eiger"),
+        transmission=1.0,
+        num_images=10,
+        pump_status=True,
+        laser_dwell_s=0.01,
+        laser_delay_s=0.005,
     )
     return params
 
@@ -157,14 +177,8 @@ async def test_laser_check(
     "mx_bluesky.beamlines.i24.serial.extruder.i24ssx_extruder_collect_py3v2.bps.sleep"
 )
 @patch("mx_bluesky.beamlines.i24.serial.extruder.i24ssx_extruder_collect_py3v2.DCID")
-@patch(
-    "mx_bluesky.beamlines.i24.serial.extruder.i24ssx_extruder_collect_py3v2.call_nexgen"
-)
 @patch("mx_bluesky.beamlines.i24.serial.extruder.i24ssx_extruder_collect_py3v2.caput")
 @patch("mx_bluesky.beamlines.i24.serial.extruder.i24ssx_extruder_collect_py3v2.caget")
-@patch(
-    "mx_bluesky.beamlines.i24.serial.extruder.i24ssx_extruder_collect_py3v2.cagetstring"
-)
 @patch("mx_bluesky.beamlines.i24.serial.extruder.i24ssx_extruder_collect_py3v2.sup")
 @patch(
     "mx_bluesky.beamlines.i24.serial.extruder.i24ssx_extruder_collect_py3v2.setup_zebra_for_quickshot_plan"
@@ -173,17 +187,16 @@ async def test_laser_check(
 @patch(
     "mx_bluesky.beamlines.i24.serial.extruder.i24ssx_extruder_collect_py3v2.read_beam_info_from_hardware"
 )
-def test_run_extruder_quickshot_with_eiger(
+def test_run_extruder_quickshot(
     mock_read_beam_info,
     fake_read,
     mock_quickshot_plan,
     fake_sup,
-    fake_cagetstring,
     fake_caget,
     fake_caput,
-    fake_nexgen,
     fake_dcid,
     fake_sleep,
+    detector_control,
     run_engine,
     zebra,
     shutter,
@@ -205,7 +218,9 @@ def test_run_extruder_quickshot_with_eiger(
         fake_generator(1702),
         fake_generator(0),  # zebra disarm
     ]
-    fake_cagetstring.return_value = "filename"
+    detector_control.collection_filename.side_effect = lambda: fake_generator(
+        "filename"
+    )
     with patch(
         "mx_bluesky.beamlines.i24.serial.extruder.i24ssx_extruder_collect_py3v2.BEAM_CENTER_LUT_FILES",
         new=TEST_LUT,
@@ -222,11 +237,23 @@ def test_run_extruder_quickshot_with_eiger(
                 mirrors,
                 eiger_beam_center,
                 dummy_params,
+                detector_control,
                 fake_dcid,
                 fake_start_time,
             )
         )
-    fake_nexgen.assert_called_once_with(
+    # A static extruder collection arms the detector and sends it one trigger, then
+    # lets it run through the series on its own timing.
+    detector_control.setup_for_collection.assert_called_once_with(
+        dummy_params.collection_directory.as_posix(),
+        dummy_params.filename,
+        dummy_params.num_images,
+        dummy_params.exposure_time_s,
+        AcquisitionMode.SOFTWARE,
+    )
+    detector_control.start_new_file_series.assert_called_once()
+    detector_control.start_acquisition.assert_called_once()
+    detector_control.write_nexus_metadata.assert_called_once_with(
         None, dummy_params, 0.6, (1605, 1702), fake_start_time
     )
     assert fake_dcid.generate_dcid.call_count == 1
@@ -237,18 +264,108 @@ def test_run_extruder_quickshot_with_eiger(
 
 
 @patch(
+    "mx_bluesky.beamlines.i24.serial.extruder.i24ssx_extruder_collect_py3v2.bps.sleep"
+)
+@patch("mx_bluesky.beamlines.i24.serial.extruder.i24ssx_extruder_collect_py3v2.DCID")
+@patch("mx_bluesky.beamlines.i24.serial.extruder.i24ssx_extruder_collect_py3v2.caput")
+@patch("mx_bluesky.beamlines.i24.serial.extruder.i24ssx_extruder_collect_py3v2.caget")
+@patch("mx_bluesky.beamlines.i24.serial.extruder.i24ssx_extruder_collect_py3v2.sup")
+@patch(
+    "mx_bluesky.beamlines.i24.serial.extruder.i24ssx_extruder_collect_py3v2.setup_zebra_for_extruder_with_pump_probe_plan"
+)
+@patch("mx_bluesky.beamlines.i24.serial.extruder.i24ssx_extruder_collect_py3v2.bps.rd")
+@patch(
+    "mx_bluesky.beamlines.i24.serial.extruder.i24ssx_extruder_collect_py3v2.read_beam_info_from_hardware"
+)
+def test_run_extruder_pump_probe_triggers_image_by_image(
+    mock_read_beam_info,
+    fake_read,
+    mock_pump_probe_plan,
+    fake_sup,
+    fake_caget,
+    fake_caput,
+    fake_dcid,
+    fake_sleep,
+    detector_control,
+    run_engine,
+    zebra,
+    shutter,
+    aperture,
+    backlight,
+    beamstop,
+    detector_stage,
+    dcm,
+    mirrors,
+    eiger_beam_center,
+    dummy_params_with_pump,
+    dummy_beam_settings,
+):
+    mock_read_beam_info.side_effect = [fake_generator(dummy_beam_settings)]
+    fake_read.side_effect = [
+        fake_generator(1605),  # beam center
+        fake_generator(1702),
+        fake_generator(0),  # zebra disarm
+    ]
+    with patch(
+        "mx_bluesky.beamlines.i24.serial.extruder.i24ssx_extruder_collect_py3v2.BEAM_CENTER_LUT_FILES",
+        new=TEST_LUT,
+    ):
+        run_engine(
+            main_extruder_plan(
+                zebra,
+                aperture,
+                backlight,
+                beamstop,
+                detector_stage,
+                shutter,
+                dcm,
+                mirrors,
+                eiger_beam_center,
+                dummy_params_with_pump,
+                detector_control,
+                fake_dcid,
+                MagicMock(),
+            )
+        )
+    # Pump probe gates every image off the zebra, unlike a static collection.
+    detector_control.setup_for_collection.assert_called_once_with(
+        dummy_params_with_pump.collection_directory.as_posix(),
+        dummy_params_with_pump.filename,
+        dummy_params_with_pump.num_images,
+        dummy_params_with_pump.exposure_time_s,
+        AcquisitionMode.HARDWARE,
+    )
+    mock_pump_probe_plan.assert_called_once()
+
+
+@patch("mx_bluesky.beamlines.i24.serial.extruder.i24ssx_extruder_collect_py3v2.DCID")
+@patch(
+    "mx_bluesky.beamlines.i24.serial.extruder.i24ssx_extruder_collect_py3v2.disarm_zebra"
+)
+def test_collection_aborted_plan(
+    mock_disarm, fake_dcid, zebra, detector_control, run_engine
+):
+    run_engine(collection_aborted_plan(zebra, detector_control, fake_dcid))
+
+    mock_disarm.assert_called_once()
+    detector_control.abort_acquisition.assert_called_once()
+    fake_dcid.collection_complete.assert_called_once_with(ANY, aborted=True)
+
+
+@patch(
     "mx_bluesky.beamlines.i24.serial.extruder.i24ssx_extruder_collect_py3v2.reset_zebra_when_collection_done_plan"
 )
 @patch("mx_bluesky.beamlines.i24.serial.extruder.i24ssx_extruder_collect_py3v2.DCID")
 @patch("mx_bluesky.beamlines.i24.serial.extruder.i24ssx_extruder_collect_py3v2.caput")
 @patch("mx_bluesky.beamlines.i24.serial.extruder.i24ssx_extruder_collect_py3v2.caget")
 @patch("mx_bluesky.beamlines.i24.serial.extruder.i24ssx_extruder_collect_py3v2.sup")
-def test_tidy_up_at_collection_end_plan_with_eiger(
+def test_tidy_up_at_collection_end_plan(
     fake_sup,
     fake_caget,
     fake_caput,
     fake_dcid,
     mock_reset_zebra_plan,
+    detector_control,
     run_engine,
     zebra,
     shutter,
@@ -258,7 +375,7 @@ def test_tidy_up_at_collection_end_plan_with_eiger(
 ):
     run_engine(
         tidy_up_at_collection_end_plan(
-            zebra, shutter, dummy_params, fake_dcid, dcm, detector_stage
+            zebra, shutter, dummy_params, detector_control, fake_dcid
         )
     )
 
@@ -267,11 +384,8 @@ def test_tidy_up_at_collection_end_plan_with_eiger(
     mock_shutter.assert_has_calls([call("Close")])
 
     assert fake_dcid.notify_end.call_count == 1
-    assert fake_caget.call_count == 1
 
-    fake_sup.eiger.assert_called_once_with(
-        "return-to-normal", None, dcm, detector_stage
-    )
+    detector_control.return_to_normal.assert_called_once()
 
 
 @patch("mx_bluesky.beamlines.i24.serial.extruder.i24ssx_extruder_collect_py3v2.DCID")
@@ -279,17 +393,16 @@ def test_tidy_up_at_collection_end_plan_with_eiger(
     "mx_bluesky.beamlines.i24.serial.extruder.i24ssx_extruder_collect_py3v2.bps.sleep"
 )
 @patch("mx_bluesky.beamlines.i24.serial.extruder.i24ssx_extruder_collect_py3v2.caput")
-def test_collection_complete_plan_with_eiger(
-    fake_caput, fake_sleep, fake_dcid, dummy_params, run_engine
+def test_collection_complete_plan(
+    fake_caput, fake_sleep, fake_dcid, dummy_params, detector_control, run_engine
 ):
     run_engine(
         collection_complete_plan(
-            dummy_params.collection_directory, dummy_params.detector_name, fake_dcid
+            dummy_params.collection_directory, detector_control, fake_dcid
         )
     )
 
-    call_list = [call(ANY, 0), call(ANY, "Done")]
-    fake_caput.assert_has_calls(call_list)
+    detector_control.stop_acquisition.assert_called_once()
 
     fake_dcid.collection_complete.assert_called_once_with(ANY, aborted=False)
 
