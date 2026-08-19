@@ -214,6 +214,8 @@ def test_run_extruder_quickshot(
     mock_read_beam_info.side_effect = [fake_generator(dummy_beam_settings)]
     # Mock end of data collection (zebra disarmed)
     fake_read.side_effect = [
+        # Already parked where the eiger is, so the carriage does not move
+        fake_generator(EIGER.det_y_target_mm),
         fake_generator(1605),  # beam center
         fake_generator(1702),
         fake_generator(0),  # zebra disarm
@@ -302,6 +304,8 @@ def test_run_extruder_pump_probe_triggers_image_by_image(
 ):
     mock_read_beam_info.side_effect = [fake_generator(dummy_beam_settings)]
     fake_read.side_effect = [
+        # Already parked where the eiger is, so the carriage does not move
+        fake_generator(EIGER.det_y_target_mm),
         fake_generator(1605),  # beam center
         fake_generator(1702),
         fake_generator(0),  # zebra disarm

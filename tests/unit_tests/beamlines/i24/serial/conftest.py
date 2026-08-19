@@ -22,6 +22,7 @@ from mx_bluesky.beamlines.i24.serial.parameters import (
     get_chip_format,
 )
 from mx_bluesky.beamlines.i24.serial.parameters.constants import DetectorName
+from mx_bluesky.beamlines.i24.serial.parameters.detector import EIGER
 
 TEST_PATH = Path("tests/test_data/test_daq_configuration")
 
@@ -49,6 +50,8 @@ def detector_control():
     hardware is tested in test_detector_control.
     """
     control = MagicMock(spec=SerialDetectorControl)
+    # Set on the instance rather than the class, so spec does not pick it up.
+    control.detector = EIGER
     plan_results = {
         "start_new_file_series": None,
         "setup_for_collection": None,

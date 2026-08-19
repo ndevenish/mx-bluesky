@@ -51,6 +51,9 @@ from mx_bluesky.beamlines.i24.serial.parameters import (
 )
 from mx_bluesky.beamlines.i24.serial.setup_beamline import caget, caput, pv
 from mx_bluesky.beamlines.i24.serial.setup_beamline import setup_beamline as sup
+from mx_bluesky.beamlines.i24.serial.setup_beamline.setup_detector import (
+    move_detector_into_beam_plan,
+)
 from mx_bluesky.beamlines.i24.serial.setup_beamline.setup_zebra_plans import (
     SHUTTER_OPEN_TIME,
     arm_zebra,
@@ -308,6 +311,10 @@ def start_i24(
     yield from sup.setup_beamline_for_collection_plan(
         aperture, backlight, beamstop, wait=True
     )
+
+    # Which detector is in the beam is a question of where the carriage is parked, so
+    # asking for a collection on one is also asking for it to be moved into the beam.
+    yield from move_detector_into_beam_plan(detector_stage, detector_control.detector)
 
     yield from sup.move_detector_stage_to_position_plan(
         detector_stage, parameters.detector_distance_mm
