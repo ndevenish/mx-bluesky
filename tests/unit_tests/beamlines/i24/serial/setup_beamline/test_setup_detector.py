@@ -63,8 +63,17 @@ def test_get_requested_detector(fake_caget):
 
 
 @patch("mx_bluesky.beamlines.i24.serial.setup_beamline.setup_detector.caget")
-def test_get_requested_detector_raises_error_for_invalid_value(fake_caget):
-    fake_caget.return_value = "something"
+@pytest.mark.parametrize(
+    "pv_value",
+    [
+        "something",
+        # What the extruder's request PV actually holds: the number that meant the
+        # pilatus. Better a loud error than silently collecting on some other detector.
+        "1",
+    ],
+)
+def test_get_requested_detector_raises_error_for_invalid_value(fake_caget, pv_value):
+    fake_caget.return_value = pv_value
     with pytest.raises(ValueError):
         _get_requested_detector("some_pv")
 

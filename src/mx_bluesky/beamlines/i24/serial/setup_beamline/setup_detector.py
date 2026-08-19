@@ -33,7 +33,11 @@ EXPT_TYPE_DETECTOR_PVS = {
 
 class DetRequest(IntEnum):
     eiger = 0
-    jungfrau = 1
+    # 1 is deliberately skipped: it meant the pilatus until it was removed in
+    # 5eee6dc4e, and the extruder's request PV still holds it. Reusing the number
+    # would turn a stale pilatus selection into a jungfrau collection, where leaving
+    # it unclaimed keeps that a loud error.
+    jungfrau = 2
 
     def __str__(self) -> str:
         return self.name
