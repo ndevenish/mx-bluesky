@@ -19,6 +19,7 @@ class EigerPVs:
     wavelength = pv.eiger_wavelength
     transmission = "BL24I-EA-PILAT-01:cam1:FilterTransm"
     filename_rbv = pv.eiger_od_filename_rbv
+    frames_captured = pv.eiger_od_num_captured_rbv
     file_name = pv.eiger_od_filename
     file_path = pv.eiger_od_filepath
     file_template = None
