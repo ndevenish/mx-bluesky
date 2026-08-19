@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import bluesky.plan_stubs as bps
 import pytest
@@ -10,6 +11,7 @@ from dodal.devices.beamlines.i24.beam_center import DetectorBeamCenter
 from dodal.devices.zebra.zebra import Zebra
 from ophyd_async.core import set_mock_value
 
+from mx_bluesky.beamlines.i24.serial.detector_control import SerialDetectorControl
 from mx_bluesky.beamlines.i24.serial.fixed_target.ft_utils import ChipType
 from mx_bluesky.beamlines.i24.serial.parameters import (
     ExtruderParameters,
@@ -28,6 +30,36 @@ TEST_LUT = {
 def fake_generator(value):
     yield from bps.null()
     return value
+
+
+@pytest.fixture
+def detector_control():
+    """A stand in for however a collection drives whichever detector is in the beam.
+
+    Every method on the interface is a plan, so each mock has to hand back a fresh
+    generator every time it is called. What the Eiger's implementation does with the
+    hardware is tested in test_detector_control.
+    """
+    control = MagicMock(spec=SerialDetectorControl)
+    plan_results = {
+        "start_new_file_series": None,
+        "setup_for_collection": None,
+        "collection_filename": "chip_01",
+        "start_acquisition": None,
+        "wait_for_completion": None,
+        # None means "this detector cannot say", so the frame count check keeps quiet
+        # unless a test asks it to report one.
+        "frames_captured": None,
+        "stop_acquisition": None,
+        "abort_acquisition": None,
+        "return_to_normal": None,
+        "write_nexus_metadata": None,
+    }
+    for method, result in plan_results.items():
+        getattr(control, method).side_effect = lambda *args, _result=result, **kwargs: (
+            fake_generator(_result)
+        )
+    return control
 
 
 @pytest.fixture
