@@ -6,6 +6,7 @@ import bluesky.plan_stubs as bps
 import pytest
 from dodal.devices.beamlines.i24.dual_backlight import BacklightPositions
 
+from mx_bluesky.beamlines.i24.serial.detector_control import EigerControl
 from mx_bluesky.beamlines.i24.serial.parameters.utils import EmptyMapError
 from mx_bluesky.beamlines.i24.web_gui_plans.general_plans import (
     gui_gonio_move_on_click,
@@ -211,7 +212,12 @@ def test_setup_tasks_in_gui_run_chip_collection(
                 mirrors,
                 eiger_beam_center,
                 expected_params,
+                ANY,  # how the collection drives its detector, checked below
                 mock_dcid(),
+            )
+            assert any(
+                isinstance(arg, EigerControl)
+                for arg in patch_wrapped_plan.call_args.args
             )
 
 
