@@ -18,6 +18,9 @@ from dodal.devices.attenuator.attenuator import ReadOnlyAttenuator
 from dodal.devices.beamlines.i24.aperture import Aperture
 from dodal.devices.beamlines.i24.beam_center import DetectorBeamCenter
 from dodal.devices.beamlines.i24.beamstop import Beamstop
+from dodal.devices.beamlines.i24.commissioning_jungfrau import (
+    CommissioningJungfrauDetector,
+)
 from dodal.devices.beamlines.i24.dcm import DCM
 from dodal.devices.beamlines.i24.dual_backlight import DualBacklight
 from dodal.devices.beamlines.i24.focus_mirrors import FocusMirrorsMode
@@ -445,6 +448,7 @@ def run_extruder_plan(
     mirrors: FocusMirrorsMode = inject("focus_mirrors"),
     attenuator: ReadOnlyAttenuator = inject("attenuator"),
     beam_center_eiger: DetectorBeamCenter = inject("eiger_beam_center"),
+    jungfrau: CommissioningJungfrauDetector = inject("jungfrau"),
 ) -> MsgGenerator:
     start_time = datetime.now()
     SSX_LOGGER.info(f"Collection start time: {start_time.ctime()}")
@@ -460,7 +464,7 @@ def run_extruder_plan(
     # How this collection drives its detector. Built here, where the devices are
     # injected, and passed down so the plans below never ask which detector it is.
     detector_control = get_detector_control(
-        parameters.detector_name, dcm, detector_stage
+        parameters.detector_name, dcm, detector_stage, jungfrau
     )
 
     # DCID - not generated yet
