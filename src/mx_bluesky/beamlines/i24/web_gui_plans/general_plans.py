@@ -11,6 +11,9 @@ from dodal.devices.attenuator.attenuator import EnumFilterAttenuator
 from dodal.devices.beamlines.i24.aperture import Aperture
 from dodal.devices.beamlines.i24.beam_center import DetectorBeamCenter
 from dodal.devices.beamlines.i24.beamstop import Beamstop
+from dodal.devices.beamlines.i24.commissioning_jungfrau import (
+    CommissioningJungfrauDetector,
+)
 from dodal.devices.beamlines.i24.dcm import DCM
 from dodal.devices.beamlines.i24.dual_backlight import BacklightPositions, DualBacklight
 from dodal.devices.beamlines.i24.focus_mirrors import FocusMirrorsMode
@@ -146,6 +149,7 @@ def gui_run_chip_collection(
     mirrors: FocusMirrorsMode = inject("focus_mirrors"),
     beam_center_eiger: DetectorBeamCenter = inject("eiger_beam_center"),
     attenuator: EnumFilterAttenuator = inject("attenuator"),
+    jungfrau: CommissioningJungfrauDetector = inject("jungfrau"),
 ) -> MsgGenerator:
     """Set the parameter model and run the data collection.
 
@@ -223,7 +227,7 @@ def gui_run_chip_collection(
 
     # How this collection drives its detector
     detector_control = get_detector_control(
-        parameters.detector_name, dcm, detector_stage
+        parameters.detector_name, dcm, detector_stage, jungfrau
     )
 
     # DCID instance - do not create yet
@@ -268,6 +272,7 @@ def gui_run_extruder_collection(
     mirrors: FocusMirrorsMode = inject("focus_mirrors"),
     attenuator: EnumFilterAttenuator = inject("attenuator"),
     beam_center_eiger: DetectorBeamCenter = inject("eiger_beam_center"),
+    jungfrau: CommissioningJungfrauDetector = inject("jungfrau"),
 ) -> MsgGenerator:
     """Set parameter model for extruder and run the data collection.
     Args:
@@ -305,7 +310,7 @@ def gui_run_extruder_collection(
 
     # How this collection drives its detector
     detector_control = get_detector_control(
-        parameters.detector_name, dcm, detector_stage
+        parameters.detector_name, dcm, detector_stage, jungfrau
     )
 
     # DCID - not generated yet

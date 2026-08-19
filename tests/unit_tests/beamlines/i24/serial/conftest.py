@@ -8,6 +8,9 @@ import pytest
 from dodal.beamlines import i24
 from dodal.devices.attenuator.attenuator import ReadOnlyAttenuator
 from dodal.devices.beamlines.i24.beam_center import DetectorBeamCenter
+from dodal.devices.beamlines.i24.commissioning_jungfrau import (
+    CommissioningJungfrauDetector,
+)
 from dodal.devices.zebra.zebra import Zebra
 from ophyd_async.core import set_mock_value
 
@@ -30,6 +33,11 @@ TEST_LUT = {
 def fake_generator(value):
     yield from bps.null()
     return value
+
+
+@pytest.fixture
+def jungfrau() -> CommissioningJungfrauDetector:
+    return i24.jungfrau.build(connect_immediately=True, mock=True)
 
 
 @pytest.fixture

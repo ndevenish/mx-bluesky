@@ -66,6 +66,7 @@ def test_gui_run_chip_collection_raises_error_for_empty_map(
     mirrors,
     eiger_beam_center,
     enum_attenuator,
+    jungfrau,
 ):
     device_list = [
         pmac,
@@ -79,6 +80,7 @@ def test_gui_run_chip_collection_raises_error_for_empty_map(
         mirrors,
         eiger_beam_center,
         enum_attenuator,
+        jungfrau,
     ]
     with pytest.raises(EmptyMapError):
         run_engine(
@@ -145,6 +147,7 @@ def test_setup_tasks_in_gui_run_chip_collection(
     mirrors,
     eiger_beam_center,
     enum_attenuator,
+    jungfrau,
     dummy_params_without_pp,
 ):
     mock_read_visit.return_value = Path("/tmp/dls/i24/fixed/foo")
@@ -160,6 +163,7 @@ def test_setup_tasks_in_gui_run_chip_collection(
         mirrors,
         eiger_beam_center,
         enum_attenuator,
+        jungfrau,
     ]
 
     expected_params = dummy_params_without_pp

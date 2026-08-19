@@ -24,8 +24,17 @@ from enum import StrEnum
 
 import bluesky.plan_stubs as bps
 from bluesky.utils import Msg, MsgGenerator
+from dodal.beamlines.i24 import JUNGFRAU_DATA_DIR, JUNGFRAU_FILENAME
+from dodal.devices.beamlines.i24.commissioning_jungfrau import (
+    CommissioningJungfrauDetector,
+)
 from dodal.devices.beamlines.i24.dcm import DCM
 from dodal.devices.motors import YZStage
+from ophyd_async.fastcs.jungfrau import (
+    GainMode,
+    create_jungfrau_external_triggering_info,
+    create_jungfrau_internal_triggering_info,
+)
 
 from mx_bluesky.beamlines.i24.serial.log import SSX_LOGGER
 from mx_bluesky.beamlines.i24.serial.parameters import (
@@ -34,7 +43,7 @@ from mx_bluesky.beamlines.i24.serial.parameters import (
     FixedTargetParameters,
     SerialDetector,
 )
-from mx_bluesky.beamlines.i24.serial.parameters.detector import EIGER
+from mx_bluesky.beamlines.i24.serial.parameters.detector import EIGER, JUNGFRAU
 from mx_bluesky.beamlines.i24.serial.setup_beamline import (
     EigerPVs,
     caget,
@@ -247,13 +256,130 @@ class EigerControl(SerialDetectorControl):
         )
 
 
+class JungfrauControl(SerialDetectorControl):
+    """The commissioning Jungfrau, driven as the ophyd-async flyer it already is.
+
+    WARNING. Where the data lands is not yet the collection directory the rest of a
+    serial collection uses. The commissioning jungfrau writes under dodal's hardcoded
+    JUNGFRAU_DATA_DIR, in a numbered subdirectory per acquisition, because i24 does not
+    have numtracker yet; only the filename is ours to choose. DCID is therefore told a
+    directory the images are not in. Removed along with the rest of the temporary path
+    handling by https://github.com/DiamondLightSource/mx-bluesky/issues/1527.
+    """
+
+    def __init__(self, jungfrau: CommissioningJungfrauDetector):
+        super().__init__(JUNGFRAU)
+        self._jungfrau = jungfrau
+        self._filename = ""
+        self._mode: AcquisitionMode | None = None
+
+    def start_new_file_series(self) -> MsgGenerator:
+        # Nothing to do: the jungfrau's path provider gives every acquisition its own
+        # numbered subdirectory, so collections cannot overwrite each other.
+        yield from bps.null()
+
+    def setup_for_collection(
+        self,
+        filepath: str,
+        filename: str,
+        num_images: int,
+        exposure_time_s: float,
+        mode: AcquisitionMode,
+    ) -> MsgGenerator:
+        SSX_LOGGER.info("Using Jungfrau detector")
+        SSX_LOGGER.warning(
+            f"Jungfrau data will be written under {JUNGFRAU_DATA_DIR}, not {filepath}. "
+            "See JungfrauControl."
+        )
+        self._filename = filename
+        self._mode = mode
+        # Read by the filewriter when the jungfrau is prepared, below. Only has an
+        # effect while i24 writes without numtracker; see JUNGFRAU_FILENAME.
+        JUNGFRAU_FILENAME.filename = filename
+
+        if mode is AcquisitionMode.HARDWARE:
+            trigger_info = create_jungfrau_external_triggering_info(
+                num_images, exposure_time_s
+            )
+        else:
+            trigger_info = create_jungfrau_internal_triggering_info(
+                num_images, exposure_time_s
+            )
+
+        yield from bps.stage(self._jungfrau, wait=True)
+        yield from bps.mv(self._jungfrau.detector.gain_mode, GainMode.DYNAMIC)
+        yield from bps.prepare(self._jungfrau, trigger_info, wait=True)
+
+        if mode is AcquisitionMode.HARDWARE:
+            # Kicking off an externally triggered collection only means starting to
+            # listen for edges, so it can happen now - and has to, because a fixed
+            # target collection has no separate go signal to hang it off. The PMAC
+            # motion program and the zebra between them run the whole thing.
+            yield from bps.kickoff(self._jungfrau, wait=True)
+
+    def collection_filename(self) -> Generator[Msg, None, str]:
+        yield from bps.null()
+        return self._filename
+
+    def start_acquisition(self) -> MsgGenerator:
+        if self._mode is AcquisitionMode.SOFTWARE:
+            # Internally triggered, so the detector runs from the moment it is kicked
+            # off. That has to be now, with the shutter open, rather than at setup.
+            yield from bps.kickoff(self._jungfrau, wait=True)
+        else:
+            yield from bps.null()
+
+    def wait_for_completion(self) -> MsgGenerator:
+        yield from bps.complete(self._jungfrau, wait=True)
+
+    def frames_captured(self) -> Generator[Msg, None, int | None]:
+        captured = yield from bps.rd(self._jungfrau.writer.frame_counter)
+        return int(captured)
+
+    def stop_acquisition(self) -> MsgGenerator:
+        yield from bps.unstage(self._jungfrau, wait=True)
+
+    def abort_acquisition(self) -> MsgGenerator:
+        yield from bps.unstage(self._jungfrau, wait=True)
+
+    def return_to_normal(self) -> MsgGenerator:
+        # Nothing to put back: unlike the Eiger, nothing else expects to find the
+        # commissioning jungfrau in a particular state.
+        yield from bps.null()
+
+    def write_nexus_metadata(
+        self,
+        chip_prog_dict: dict | None,
+        parameters: ExtruderParameters | FixedTargetParameters,
+        wavelength_in_a: float,
+        beam_center_in_pix: tuple[float, float],
+        start_time: datetime,
+    ) -> MsgGenerator:
+        # nexgen reads the collection back off the Eiger's PVs, so it cannot describe a
+        # jungfrau collection. The commissioning plans write a collection_info.json
+        # through JsonMetadataWriter instead; nothing equivalent is wired up for serial.
+        SSX_LOGGER.warning(
+            "No nexus file will be written for this jungfrau collection."
+        )
+        yield from bps.null()
+
+
 def get_detector_control(
-    detector_name: DetectorName, dcm: DCM, detector_stage: YZStage
+    detector_name: DetectorName,
+    dcm: DCM,
+    detector_stage: YZStage,
+    jungfrau: CommissioningJungfrauDetector | None = None,
 ) -> SerialDetectorControl:
     """How to drive the detector a collection has been asked to run on."""
     match detector_name:
         case DetectorName.EIGER:
             return EigerControl(dcm, detector_stage)
+        case DetectorName.JUNGFRAU:
+            if jungfrau is None:
+                raise UnknownDetectorTypeError(
+                    "A jungfrau collection needs the jungfrau device."
+                )
+            return JungfrauControl(jungfrau)
         case _:
             raise UnknownDetectorTypeError(
                 f"Cannot run a serial collection on {detector_name}."
