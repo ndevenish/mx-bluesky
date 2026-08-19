@@ -2,6 +2,9 @@ import pytest
 from dodal.beamlines import i24
 from dodal.devices.attenuator.attenuator import EnumFilterAttenuator
 from dodal.devices.beamlines.i24.beam_center import DetectorBeamCenter
+from dodal.devices.beamlines.i24.commissioning_jungfrau import (
+    CommissioningJungfrauDetector,
+)
 from ophyd_async.core import set_mock_value
 
 from mx_bluesky.beamlines.i24.serial.fixed_target.ft_utils import ChipType
@@ -25,6 +28,11 @@ def eiger_beam_center() -> DetectorBeamCenter:
 @pytest.fixture
 def enum_attenuator() -> EnumFilterAttenuator:
     return i24.attenuator.build(connect_immediately=True, mock=True)
+
+
+@pytest.fixture
+def jungfrau() -> CommissioningJungfrauDetector:
+    return i24.jungfrau.build(connect_immediately=True, mock=True)
 
 
 @pytest.fixture

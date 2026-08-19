@@ -1,15 +1,19 @@
+from datetime import datetime
 from unittest.mock import ANY, MagicMock, call, patch
 
 import pytest
+from dodal.beamlines.i24 import JUNGFRAU_FILENAME
+from ophyd_async.core import DetectorTrigger, set_mock_value
 
 from mx_bluesky.beamlines.i24.serial.detector_control import (
     AcquisitionMode,
     EigerControl,
+    JungfrauControl,
     check_all_frames_written,
     get_detector_control,
 )
 from mx_bluesky.beamlines.i24.serial.parameters.constants import DetectorName
-from mx_bluesky.beamlines.i24.serial.parameters.detector import EIGER
+from mx_bluesky.beamlines.i24.serial.parameters.detector import EIGER, JUNGFRAU
 from mx_bluesky.beamlines.i24.serial.setup_beamline.setup_detector import (
     UnknownDetectorTypeError,
 )
@@ -179,3 +183,123 @@ def test_check_all_frames_written_skips_a_detector_that_cannot_count(
 
     fake_log.warning.assert_not_called()
     fake_log.info.assert_not_called()
+
+
+@pytest.fixture
+def jungfrau_control(jungfrau):
+    return JungfrauControl(jungfrau)
+
+
+def test_get_detector_control_for_jungfrau(dcm, detector_stage, jungfrau):
+    control = get_detector_control(DetectorName.JUNGFRAU, dcm, detector_stage, jungfrau)
+    assert isinstance(control, JungfrauControl)
+    assert control.detector is JUNGFRAU
+
+
+def test_get_detector_control_for_jungfrau_needs_the_device(dcm, detector_stage):
+    with pytest.raises(UnknownDetectorTypeError):
+        get_detector_control(DetectorName.JUNGFRAU, dcm, detector_stage)
+
+
+@patch("mx_bluesky.beamlines.i24.serial.detector_control.bps.prepare")
+@patch("mx_bluesky.beamlines.i24.serial.detector_control.bps.kickoff")
+def test_jungfrau_hardware_triggering_listens_for_edges_from_setup(
+    fake_kickoff, fake_prepare, jungfrau_control, run_engine
+):
+    # A fixed target collection has no separate go signal, so the detector has to be
+    # kicked off while it is being set up.
+    fake_prepare.side_effect = lambda *args, **kwargs: fake_generator(None)
+    fake_kickoff.side_effect = lambda *args, **kwargs: fake_generator(None)
+
+    run_engine(
+        jungfrau_control.setup_for_collection(
+            "/some/path", "chip", 800, 0.01, AcquisitionMode.HARDWARE
+        )
+    )
+    fake_kickoff.assert_called_once()
+
+    trigger_info = fake_prepare.call_args.args[1]
+    assert trigger_info.trigger is DetectorTrigger.EXTERNAL_EDGE
+    assert trigger_info.number_of_events == 800
+    assert trigger_info.livetime == 0.01
+
+    # ...and not again when the extruder sends its go signal
+    run_engine(jungfrau_control.start_acquisition())
+    fake_kickoff.assert_called_once()
+
+
+@patch("mx_bluesky.beamlines.i24.serial.detector_control.bps.prepare")
+@patch("mx_bluesky.beamlines.i24.serial.detector_control.bps.kickoff")
+def test_jungfrau_software_triggering_starts_when_the_shutter_is_open(
+    fake_kickoff, fake_prepare, jungfrau_control, run_engine
+):
+    # Internally triggered, so the detector runs from the moment it is kicked off.
+    # That has to be when the collection starts, not when it is set up.
+    fake_prepare.side_effect = lambda *args, **kwargs: fake_generator(None)
+    fake_kickoff.side_effect = lambda *args, **kwargs: fake_generator(None)
+
+    run_engine(
+        jungfrau_control.setup_for_collection(
+            "/some/path", "protein", 10, 0.1, AcquisitionMode.SOFTWARE
+        )
+    )
+    fake_kickoff.assert_not_called()
+
+    trigger_info = fake_prepare.call_args.args[1]
+    assert trigger_info.trigger is DetectorTrigger.INTERNAL
+    assert trigger_info.collections_per_event == 10
+
+    run_engine(jungfrau_control.start_acquisition())
+    fake_kickoff.assert_called_once()
+
+
+@patch("mx_bluesky.beamlines.i24.serial.detector_control.bps.prepare")
+def test_jungfrau_collection_filename_is_the_one_it_was_asked_for(
+    fake_prepare, jungfrau_control, run_engine
+):
+    fake_prepare.side_effect = lambda *args, **kwargs: fake_generator(None)
+
+    run_engine(
+        jungfrau_control.setup_for_collection(
+            "/some/path", "protein", 10, 0.1, AcquisitionMode.SOFTWARE
+        )
+    )
+    result = run_engine(jungfrau_control.collection_filename())
+
+    assert result.plan_result == "protein"
+    assert JUNGFRAU_FILENAME.filename == "protein"
+
+
+async def test_jungfrau_frames_captured_reads_the_writer(
+    jungfrau_control, jungfrau, run_engine
+):
+    set_mock_value(jungfrau.writer.frame_counter, 798)
+
+    result = run_engine(jungfrau_control.frames_captured())
+
+    assert result.plan_result == 798
+
+
+@patch("mx_bluesky.beamlines.i24.serial.detector_control.bps.unstage")
+def test_jungfrau_is_stopped_at_the_end_of_a_collection(
+    fake_unstage, jungfrau_control, run_engine
+):
+    fake_unstage.side_effect = lambda *args, **kwargs: fake_generator(None)
+
+    run_engine(jungfrau_control.stop_acquisition())
+    run_engine(jungfrau_control.abort_acquisition())
+
+    assert fake_unstage.call_count == 2
+
+
+@patch("mx_bluesky.beamlines.i24.serial.detector_control.SSX_LOGGER")
+def test_jungfrau_says_no_nexus_file_is_written(
+    fake_log, jungfrau_control, dummy_params_without_pp, run_engine
+):
+    run_engine(
+        jungfrau_control.write_nexus_metadata(
+            None, dummy_params_without_pp, 0.6, (1605, 1702), datetime.now()
+        )
+    )
+
+    fake_log.warning.assert_called_once()
