@@ -29,6 +29,12 @@ from mx_bluesky.beamlines.i24.serial.dcid import (
     DCID,
     read_beam_info_from_hardware,
 )
+from mx_bluesky.beamlines.i24.serial.detector_control import (
+    AcquisitionMode,
+    SerialDetectorControl,
+    check_all_frames_written,
+    get_detector_control,
+)
 from mx_bluesky.beamlines.i24.serial.log import (
     SSX_LOGGER,
     _read_visit_directory_from_file,
@@ -41,13 +47,11 @@ from mx_bluesky.beamlines.i24.serial.parameters import (
 )
 from mx_bluesky.beamlines.i24.serial.setup_beamline import (
     caget,
-    cagetstring,
     caput,
     pv,
 )
 from mx_bluesky.beamlines.i24.serial.setup_beamline import setup_beamline as sup
 from mx_bluesky.beamlines.i24.serial.setup_beamline.setup_detector import (
-    UnknownDetectorTypeError,
     get_detector_type,
 )
 from mx_bluesky.beamlines.i24.serial.setup_beamline.setup_zebra_plans import (
@@ -60,7 +64,6 @@ from mx_bluesky.beamlines.i24.serial.setup_beamline.setup_zebra_plans import (
     setup_zebra_for_extruder_with_pump_probe_plan,
     setup_zebra_for_quickshot_plan,
 )
-from mx_bluesky.beamlines.i24.serial.write_nexus import call_nexgen
 
 SAFE_DET_Z = 1480
 
@@ -196,6 +199,7 @@ def main_extruder_plan(
     mirrors: FocusMirrorsMode,
     beam_center_device: DetectorBeamCenter,
     parameters: ExtruderParameters,
+    detector_control: SerialDetectorControl,
     dcid: DCID,
     start_time: datetime,
 ) -> MsgGenerator:
@@ -226,76 +230,51 @@ def main_extruder_plan(
     SSX_LOGGER.debug(f"Filepath {filepath}")
     SSX_LOGGER.debug(f"Filename {parameters.filename}")
 
-    if parameters.detector_name == "eiger":
-        SSX_LOGGER.info("Using Eiger detector")
+    yield from detector_control.start_new_file_series()
 
-        SSX_LOGGER.debug(f"Creating the directory for the collection in {filepath}.")
-
-        caput(pv.eiger_seq_id, int(caget(pv.eiger_seq_id)) + 1)
-        SSX_LOGGER.info(f"Eiger quickshot setup: filepath {filepath}")
-        SSX_LOGGER.info(f"Eiger quickshot setup: filepath {parameters.filename}")
-        SSX_LOGGER.info(
-            f"Eiger quickshot setup: number of images {parameters.num_images}"
+    if parameters.pump_status:
+        SSX_LOGGER.info("Pump probe extruder data collection")
+        SSX_LOGGER.debug(f"Pump exposure time {parameters.laser_dwell_s}")
+        SSX_LOGGER.debug(f"Pump delay time {parameters.laser_delay_s}")
+        # Pump probe gates every image off the zebra, so the detector is triggered
+        # image by image rather than left to run through the series itself.
+        yield from detector_control.setup_for_collection(
+            filepath,
+            parameters.filename,
+            parameters.num_images,
+            parameters.exposure_time_s,
+            AcquisitionMode.HARDWARE,
         )
-        SSX_LOGGER.info(
-            f"Eiger quickshot setup: exposure time {parameters.exposure_time_s}"
+        yield from setup_zebra_for_extruder_with_pump_probe_plan(
+            zebra,
+            parameters.detector_name,
+            parameters.exposure_time_s,
+            parameters.num_images,
+            parameters.laser_dwell_s,
+            parameters.laser_delay_s,
+            pulse1_delay=0.0,
+            wait=True,
         )
-
-        if parameters.pump_status:
-            SSX_LOGGER.info("Pump probe extruder data collection")
-            SSX_LOGGER.debug(f"Pump exposure time {parameters.laser_dwell_s}")
-            SSX_LOGGER.debug(f"Pump delay time {parameters.laser_delay_s}")
-            yield from sup.eiger(
-                "triggered",
-                [
-                    filepath,
-                    parameters.filename,
-                    parameters.num_images,
-                    parameters.exposure_time_s,
-                ],
-                dcm,
-                detector_stage,
-            )
-            yield from setup_zebra_for_extruder_with_pump_probe_plan(
-                zebra,
-                parameters.detector_name,
-                parameters.exposure_time_s,
-                parameters.num_images,
-                parameters.laser_dwell_s,
-                parameters.laser_delay_s,
-                pulse1_delay=0.0,
-                wait=True,
-            )
-        else:
-            SSX_LOGGER.info("Static experiment: no photoexcitation")
-            yield from sup.eiger(
-                "quickshot",
-                [
-                    filepath,
-                    parameters.filename,
-                    parameters.num_images,
-                    parameters.exposure_time_s,
-                ],
-                dcm,
-                detector_stage,
-            )
-            yield from setup_zebra_for_quickshot_plan(
-                zebra, parameters.exposure_time_s, parameters.num_images, wait=True
-            )
     else:
-        err = f"Unknown Detector Type, det_type = {parameters.detector_name}"
-        SSX_LOGGER.error(err)
-        raise UnknownDetectorTypeError(err)
+        SSX_LOGGER.info("Static experiment: no photoexcitation")
+        yield from detector_control.setup_for_collection(
+            filepath,
+            parameters.filename,
+            parameters.num_images,
+            parameters.exposure_time_s,
+            AcquisitionMode.SOFTWARE,
+        )
+        yield from setup_zebra_for_quickshot_plan(
+            zebra, parameters.exposure_time_s, parameters.num_images, wait=True
+        )
 
     beam_settings = yield from read_beam_info_from_hardware(
         dcm, mirrors, beam_center_device, parameters.detector_name
     )
 
     # Do DCID creation BEFORE arming the detector
-    filetemplate = f"{parameters.filename}.nxs"
-    if parameters.detector_name == "eiger":
-        complete_filename = cagetstring(pv.eiger_od_filename_rbv)
-        filetemplate = f"{complete_filename}.nxs"
+    complete_filename = yield from detector_control.collection_filename()
+    filetemplate = f"{complete_filename}.nxs"
     dcid.generate_dcid(
         beam_settings=beam_settings,
         image_dir=parameters.collection_directory.as_posix(),
@@ -308,23 +287,19 @@ def main_extruder_plan(
     # Collect
     SSX_LOGGER.info("Fast shutter opening")
     yield from open_fast_shutter(zebra)
-    if parameters.detector_name == "eiger":
-        SSX_LOGGER.info("Triggering Eiger NOW")
-        caput(pv.eiger_trigger, 1)
+    yield from detector_control.start_acquisition()
 
     dcid.notify_start()
 
-    if parameters.detector_name == "eiger":
-        SSX_LOGGER.debug("Call nexgen server for nexus writing.")
-        beam_x = yield from bps.rd(beam_center_device.beam_x)
-        beam_y = yield from bps.rd(beam_center_device.beam_y)
-        yield from call_nexgen(
-            None,
-            parameters,
-            beam_settings.wavelength_in_a,
-            (beam_x, beam_y),
-            start_time,
-        )
+    beam_x = yield from bps.rd(beam_center_device.beam_x)
+    beam_y = yield from bps.rd(beam_center_device.beam_y)
+    yield from detector_control.write_nexus_metadata(
+        None,
+        parameters,
+        beam_settings.wavelength_in_a,
+        (beam_x, beam_y),
+        start_time,
+    )
 
     timeout_time = time.time() + parameters.num_images * parameters.exposure_time_s + 10
 
@@ -353,19 +328,19 @@ def main_extruder_plan(
             )
             raise TimeoutError("Data collection timed out.")
 
+    yield from detector_control.wait_for_completion()
     SSX_LOGGER.info("Collection completed without errors.")
+    yield from check_all_frames_written(detector_control, parameters.num_images)
 
 
 @log_on_entry
 def collection_aborted_plan(
-    zebra: Zebra, detector_name: str, dcid: DCID
+    zebra: Zebra, detector_control: SerialDetectorControl, dcid: DCID
 ) -> MsgGenerator:
     """A plan to run in case the collection is aborted before the end."""
     SSX_LOGGER.warning("Data Collection Aborted")
     yield from disarm_zebra(zebra)  # If aborted/timed out zebra still armed
-    if detector_name == "eiger":
-        caput(pv.eiger_acquire, 0)
-    yield from bps.sleep(0.5)
+    yield from detector_control.abort_acquisition()
     end_time = datetime.now()
     dcid.collection_complete(end_time, aborted=True)
 
@@ -375,9 +350,8 @@ def tidy_up_at_collection_end_plan(
     zebra: Zebra,
     shutter: InterlockedHutchShutter,
     parameters: ExtruderParameters,
+    detector_control: SerialDetectorControl,
     dcid: DCID,
-    dcm: DCM,
-    detector_stage: YZStage,
 ) -> MsgGenerator:
     """A plan to tidy up at the end of a collection, successful or aborted.
 
@@ -389,9 +363,7 @@ def tidy_up_at_collection_end_plan(
     yield from reset_zebra_when_collection_done_plan(zebra)
 
     # Clean Up
-    if parameters.detector_name == "eiger":
-        yield from sup.eiger("return-to-normal", None, dcm, detector_stage)
-        SSX_LOGGER.debug(f"{parameters.filename}_{caget(pv.eiger_seq_id)}")
+    yield from detector_control.return_to_normal()
     SSX_LOGGER.debug("End of Run")
     SSX_LOGGER.info("Close hutch shutter")
     yield from bps.abs_set(shutter, ShutterDemand.CLOSE, wait=True)
@@ -401,14 +373,11 @@ def tidy_up_at_collection_end_plan(
 
 @log_on_entry
 def collection_complete_plan(
-    collection_directory: Path, detector_name: str, dcid: DCID
+    collection_directory: Path,
+    detector_control: SerialDetectorControl,
+    dcid: DCID,
 ) -> MsgGenerator:
-    if detector_name == "eiger":
-        SSX_LOGGER.info("Eiger Acquire STOP")
-        caput(pv.eiger_acquire, 0)
-        caput(pv.eiger_od_capture, "Done")
-
-    yield from bps.sleep(0.5)
+    yield from detector_control.stop_acquisition()
 
     end_time = datetime.now()
     dcid.collection_complete(end_time, aborted=False)
@@ -428,6 +397,7 @@ def run_plan_in_wrapper(
     mirrors: FocusMirrorsMode,
     beam_center_eiger: DetectorBeamCenter,
     parameters: ExtruderParameters,
+    detector_control: SerialDetectorControl,
     dcid: DCID,
     start_time: datetime,
 ) -> MsgGenerator:
@@ -443,20 +413,21 @@ def run_plan_in_wrapper(
             mirrors=mirrors,
             beam_center_device=beam_center_eiger,
             parameters=parameters,
+            detector_control=detector_control,
             dcid=dcid,
             start_time=start_time,
         ),
         except_plan=lambda e: (
-            yield from collection_aborted_plan(zebra, parameters.detector_name, dcid)
+            yield from collection_aborted_plan(zebra, detector_control, dcid)
         ),
         else_plan=lambda: (
             yield from collection_complete_plan(
-                parameters.collection_directory, parameters.detector_name, dcid
+                parameters.collection_directory, detector_control, dcid
             )
         ),
         final_plan=lambda: (
             yield from tidy_up_at_collection_end_plan(
-                zebra, shutter, parameters, dcid, dcm, detector_stage
+                zebra, shutter, parameters, detector_control, dcid
             )
         ),
         auto_raise=False,
@@ -486,6 +457,12 @@ def run_extruder_plan(
 
     beam_center_device = beam_center_eiger
 
+    # How this collection drives its detector. Built here, where the devices are
+    # injected, and passed down so the plans below never ask which detector it is.
+    detector_control = get_detector_control(
+        parameters.detector_name, dcm, detector_stage
+    )
+
     # DCID - not generated yet
     dcid = DCID(emit_errors=False, expt_params=parameters)
 
@@ -500,6 +477,7 @@ def run_extruder_plan(
         mirrors,
         beam_center_device,
         parameters,
+        detector_control,
         dcid,
         start_time,
     )

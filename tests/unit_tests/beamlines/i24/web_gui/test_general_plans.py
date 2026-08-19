@@ -286,6 +286,11 @@ def test_gui_run_extruder_collection(
                 mirrors,
                 eiger_beam_center,
                 dummy_params_ex,
+                ANY,  # how the collection drives its detector, checked below
                 mock_dcid(),
                 fake_start,
+            )
+            assert any(
+                isinstance(arg, EigerControl)
+                for arg in patch_wrapped_plan.call_args.args
             )
