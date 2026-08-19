@@ -14,6 +14,7 @@ from ophyd_async.core import (
     set_mock_value,
 )
 
+from mx_bluesky.beamlines.i24.serial.detector_control import AcquisitionMode
 from mx_bluesky.beamlines.i24.serial.fixed_target.ft_utils import (
     ChipType,
     MappingType,
@@ -153,11 +154,7 @@ def test_load_motion_program_data(
 
 
 @patch("mx_bluesky.beamlines.i24.serial.fixed_target.i24ssx_chip_collect_py3v1.DCID")
-@patch("mx_bluesky.beamlines.i24.serial.fixed_target.i24ssx_chip_collect_py3v1.caput")
 @patch("mx_bluesky.beamlines.i24.serial.fixed_target.i24ssx_chip_collect_py3v1.caget")
-@patch(
-    "mx_bluesky.beamlines.i24.serial.fixed_target.i24ssx_chip_collect_py3v1.cagetstring"
-)
 @patch("mx_bluesky.beamlines.i24.serial.fixed_target.i24ssx_chip_collect_py3v1.sup")
 @patch(
     "mx_bluesky.beamlines.i24.serial.fixed_target.i24ssx_chip_collect_py3v1.bps.sleep"
@@ -165,14 +162,13 @@ def test_load_motion_program_data(
 @patch(
     "mx_bluesky.beamlines.i24.serial.fixed_target.i24ssx_chip_collect_py3v1.datetime"
 )
-def test_start_i24_with_eiger(
+def test_start_i24(
     fake_datetime,
     fake_sleep,
     fake_sup,
-    fake_cagetstring,
     fake_caget,
-    fake_caput,
     fake_dcid,
+    detector_control,
     zebra: Zebra,
     shutter: InterlockedHutchShutter,
     run_engine,
@@ -196,7 +192,9 @@ def test_start_i24_with_eiger(
         beam_center_in_mm=(1605 * 0.075, 1702 * 0.075),
     )
     expected_odin_filename = f"{dummy_params_without_pp.filename}_0001"
-    fake_cagetstring.return_value = expected_odin_filename
+    detector_control.collection_filename.side_effect = lambda: fake_generator(
+        expected_odin_filename
+    )
 
     run_engine(
         start_i24(
@@ -210,13 +208,21 @@ def test_start_i24_with_eiger(
             dcm,
             mirrors,
             eiger_beam_center,
+            detector_control,
             fake_dcid,
         )
     )
-    assert fake_sup.eiger.call_count == 1
+    # A fixed target collection triggers the detector image by image, off the zebra.
+    detector_control.setup_for_collection.assert_called_once_with(
+        dummy_params_without_pp.collection_directory.as_posix(),
+        dummy_params_without_pp.filename,
+        dummy_params_without_pp.total_num_images,
+        dummy_params_without_pp.exposure_time_s,
+        AcquisitionMode.HARDWARE,
+    )
     assert fake_sup.setup_beamline_for_collection_plan.call_count == 1
     assert fake_sup.move_detector_stage_to_position_plan.call_count == 1
-    fake_cagetstring.assert_called_once()
+    detector_control.collection_filename.assert_called_once()
     fake_dcid.generate_dcid.assert_called_with(
         beam_settings=expected_beam_settings,
         image_dir=dummy_params_without_pp.collection_directory.as_posix(),
@@ -241,11 +247,7 @@ def test_start_i24_with_eiger(
 @patch(
     "mx_bluesky.beamlines.i24.serial.fixed_target.i24ssx_chip_collect_py3v1.bps.sleep"
 )
-@patch(
-    "mx_bluesky.beamlines.i24.serial.fixed_target.i24ssx_chip_collect_py3v1.cagetstring"
-)
 @patch("mx_bluesky.beamlines.i24.serial.fixed_target.i24ssx_chip_collect_py3v1.caget")
-@patch("mx_bluesky.beamlines.i24.serial.fixed_target.i24ssx_chip_collect_py3v1.sup")
 @patch(
     "mx_bluesky.beamlines.i24.serial.fixed_target.i24ssx_chip_collect_py3v1.reset_zebra_when_collection_done_plan"
 )
@@ -253,11 +255,10 @@ def test_start_i24_with_eiger(
 def test_finish_i24(
     fake_read,
     fake_reset_zebra,
-    fake_sup,
     fake_caget,
-    fake_cagetstring,
     fake_sleep,
     fake_userlog,
+    detector_control,
     zebra,
     pmac,
     shutter,
@@ -268,16 +269,21 @@ def test_finish_i24(
 ):
     fake_read.side_effect = [fake_generator(0.6)]
     fake_caget.return_value = 0.0
-    fake_cagetstring.return_value = "chip_01"
     run_engine(
-        finish_i24(zebra, pmac, shutter, dcm, detector_stage, dummy_params_without_pp)
+        finish_i24(
+            zebra,
+            pmac,
+            shutter,
+            dcm,
+            detector_stage,
+            dummy_params_without_pp,
+            detector_control,
+        )
     )
 
     fake_reset_zebra.assert_called_once()
 
-    fake_sup.eiger.assert_called_once_with(
-        "return-to-normal", None, dcm, detector_stage
-    )
+    detector_control.return_to_normal.assert_called_once()
 
     mock_pmac_string = get_mock_put(pmac.pmac_string)
     mock_pmac_string.assert_has_calls([call("&2!x0y0z0")])
@@ -310,12 +316,11 @@ def test_run_aborted_plan(
     "mx_bluesky.beamlines.i24.serial.fixed_target.i24ssx_chip_collect_py3v1.bps.sleep"
 )
 @patch("mx_bluesky.beamlines.i24.serial.fixed_target.i24ssx_chip_collect_py3v1.DCID")
-@patch("mx_bluesky.beamlines.i24.serial.fixed_target.i24ssx_chip_collect_py3v1.caput")
 async def test_tidy_up_after_collection_plan(
-    fake_caput,
     fake_dcid,
     fake_sleep,
     mock_finish,
+    detector_control,
     zebra,
     pmac,
     shutter,
@@ -332,6 +337,7 @@ async def test_tidy_up_after_collection_plan(
             dcm,
             detector_stage,
             dummy_params_without_pp,
+            detector_control,
             fake_dcid,
         )
     )
@@ -339,12 +345,14 @@ async def test_tidy_up_after_collection_plan(
 
     fake_dcid.notify_end.assert_called_once()
 
-    fake_caput.assert_has_calls([call(ANY, 0), call(ANY, "Done")])
+    detector_control.stop_acquisition.assert_called_once()
 
     mock_finish.assert_called_once()
 
 
-async def test_kick_off_and_complete_collection(pmac, dummy_params_with_pp, run_engine):
+async def test_kick_off_and_complete_collection(
+    pmac, dummy_params_with_pp, detector_control, run_engine
+):
     pmac.run_program.kickoff = MagicMock(side_effect=lambda: completed_status())
     pmac.run_program.complete = MagicMock(side_effect=lambda: completed_status())
 
@@ -357,24 +365,33 @@ async def test_kick_off_and_complete_collection(pmac, dummy_params_with_pp, run_
         pmac.pmac_string,
         lambda *args, **kwargs: asyncio.create_task(go_high_then_low()),  # type: ignore
     )
-    res = run_engine(kickoff_and_complete_collection(pmac, dummy_params_with_pp))
+    res = run_engine(
+        kickoff_and_complete_collection(pmac, dummy_params_with_pp, detector_control)
+    )
 
     assert await pmac.program_number.get_value() == 14
 
     pmac.run_program.kickoff.assert_called_once()
     pmac.run_program.complete.assert_called_once()
+    # The motion program ending is what says the collection is over, but a detector
+    # that needs waiting on in its own right still gets waited on.
+    detector_control.wait_for_completion.assert_called_once()
 
     assert res.exit_status == "success"
 
 
 @patch("dodal.devices.beamlines.i24.pmac.DEFAULT_TIMEOUT", 0.1)
 async def test_kickoff_and_complete_fails_if_scan_status_pv_does_not_change(
-    pmac, dummy_params_without_pp, run_engine
+    pmac, dummy_params_without_pp, detector_control, run_engine
 ):
     pmac.run_program.KICKOFF_TIMEOUT = 0.1
     set_mock_value(pmac.scanstatus, 0)
     with pytest.raises(FailedStatus):
-        run_engine(kickoff_and_complete_collection(pmac, dummy_params_without_pp))
+        run_engine(
+            kickoff_and_complete_collection(
+                pmac, dummy_params_without_pp, detector_control
+            )
+        )
 
 
 @patch(
@@ -394,20 +411,17 @@ async def test_kickoff_and_complete_fails_if_scan_status_pv_does_not_change(
 )
 @patch("mx_bluesky.beamlines.i24.serial.fixed_target.i24ssx_chip_collect_py3v1.DCID")
 @patch(
-    "mx_bluesky.beamlines.i24.serial.fixed_target.i24ssx_chip_collect_py3v1.call_nexgen"
-)
-@patch(
     "mx_bluesky.beamlines.i24.serial.fixed_target.i24ssx_chip_collect_py3v1.bps.sleep"
 )
 async def test_main_fixed_target_plan(
     fake_sleep,
-    fake_nexgen,
     fake_dcid,
     mock_get_chip_prog,
     mock_motion_program,
     fake_datasize,
     mock_start,
     mock_kickoff,
+    detector_control,
     run_engine,
     zebra,
     pmac,
@@ -444,6 +458,7 @@ async def test_main_fixed_target_plan(
                     mirrors,
                     eiger_beam_center,
                     dummy_params_without_pp,
+                    detector_control,
                     fake_dcid,
                 )
             )
@@ -462,7 +477,7 @@ async def test_main_fixed_target_plan(
     mock_pmac_str.assert_called_once_with("&2!x0y0z0")  # Check pmac moved to start
     assert fake_dcid.notify_start.call_count == 1
     mock_zebra_input.assert_called_once_with("Yes")  # Check fast shutter open
-    fake_nexgen.assert_called_once_with(
+    detector_control.write_nexus_metadata.assert_called_once_with(
         mock_get_chip_prog.return_value,
         dummy_params_without_pp,
         0.6,
@@ -470,7 +485,7 @@ async def test_main_fixed_target_plan(
         None,
     )
     mock_kickoff.assert_called_once_with(
-        pmac, dummy_params_without_pp
+        pmac, dummy_params_without_pp, detector_control
     )  # Check collection kick off
 
 

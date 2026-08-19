@@ -26,6 +26,12 @@ from mx_bluesky.beamlines.i24.serial.dcid import (
     DCID,
     read_beam_info_from_hardware,
 )
+from mx_bluesky.beamlines.i24.serial.detector_control import (
+    AcquisitionMode,
+    SerialDetectorControl,
+    check_all_frames_written,
+    get_detector_control,
+)
 from mx_bluesky.beamlines.i24.serial.fixed_target.ft_utils import (
     ChipType,
     MappingType,
@@ -40,7 +46,7 @@ from mx_bluesky.beamlines.i24.serial.parameters import (
     BEAM_CENTER_LUT_FILES,
     FixedTargetParameters,
 )
-from mx_bluesky.beamlines.i24.serial.setup_beamline import caget, cagetstring, caput, pv
+from mx_bluesky.beamlines.i24.serial.setup_beamline import caget, caput, pv
 from mx_bluesky.beamlines.i24.serial.setup_beamline import setup_beamline as sup
 from mx_bluesky.beamlines.i24.serial.setup_beamline.setup_zebra_plans import (
     SHUTTER_OPEN_TIME,
@@ -51,7 +57,6 @@ from mx_bluesky.beamlines.i24.serial.setup_beamline.setup_zebra_plans import (
     reset_zebra_when_collection_done_plan,
     setup_zebra_for_fastchip_plan,
 )
-from mx_bluesky.beamlines.i24.serial.write_nexus import call_nexgen
 
 
 def write_userlog(
@@ -281,6 +286,7 @@ def start_i24(
     dcm: DCM,
     mirrors: FocusMirrorsMode,
     beam_center_device: DetectorBeamCenter,
+    detector_control: SerialDetectorControl,
     dcid: DCID,
 ):
     """Set up for I24 fixed target data collection, trigger the detector and open \
@@ -317,73 +323,50 @@ def start_i24(
     SSX_LOGGER.info(f"Number of exposures: {parameters.num_exposures}")
     SSX_LOGGER.info(f"Number of gates (=Total images/N exposures): {num_gates:.4f}")
 
-    if parameters.detector_name == "eiger":
-        SSX_LOGGER.info("Using Eiger detector")
+    # A fixed target collection is gated image by image by the zebra, off the PMAC
+    # motion program.
+    yield from detector_control.setup_for_collection(
+        filepath,
+        filename,
+        parameters.total_num_images,
+        parameters.exposure_time_s,
+        AcquisitionMode.HARDWARE,
+    )
 
-        SSX_LOGGER.debug(f"Creating the directory for the collection in {filepath}.")
+    # DCID process depends on the detector being set up already
+    SSX_LOGGER.debug("Start DCID process")
+    complete_filename = yield from detector_control.collection_filename()
+    filetemplate = f"{complete_filename}.nxs"
+    dcid.generate_dcid(
+        beam_settings=beam_settings,
+        image_dir=filepath,
+        file_template=filetemplate,
+        num_images=parameters.total_num_images,
+        shots_per_position=parameters.num_exposures,
+        start_time=start_time,
+        pump_probe=bool(parameters.pump_repeat),
+    )
 
-        SSX_LOGGER.info(f"Triggered Eiger setup: filepath {filepath}")
-        SSX_LOGGER.info(f"Triggered Eiger setup: filename {filename}")
-        SSX_LOGGER.info(
-            f"Triggered Eiger setup: number of images {parameters.total_num_images}"
+    SSX_LOGGER.debug("Arm Zebra.")
+    shutter_time_offset = (
+        SHUTTER_OPEN_TIME if parameters.pump_repeat is PumpProbeSetting.Medium1 else 0.0
+    )
+    yield from setup_zebra_for_fastchip_plan(
+        zebra,
+        parameters.detector_name,
+        num_gates,
+        parameters.num_exposures,
+        parameters.exposure_time_s,
+        shutter_time_offset,
+        wait=True,
+    )
+    if parameters.pump_repeat == PumpProbeSetting.Medium1:
+        yield from open_fast_shutter_at_each_position_plan(
+            zebra, parameters.num_exposures, parameters.exposure_time_s
         )
-        SSX_LOGGER.info(
-            f"Triggered Eiger setup: exposure time {parameters.exposure_time_s}"
-        )
+    yield from arm_zebra(zebra)
 
-        yield from sup.eiger(
-            "triggered",
-            [
-                filepath,
-                filename,
-                parameters.total_num_images,
-                parameters.exposure_time_s,
-            ],
-            dcm,
-            detector_stage,
-        )
-
-        # DCID process depends on detector PVs being set up already
-        SSX_LOGGER.debug("Start DCID process")
-        complete_filename = cagetstring(pv.eiger_od_filename_rbv)
-        filetemplate = f"{complete_filename}.nxs"
-        dcid.generate_dcid(
-            beam_settings=beam_settings,
-            image_dir=filepath,
-            file_template=filetemplate,
-            num_images=parameters.total_num_images,
-            shots_per_position=parameters.num_exposures,
-            start_time=start_time,
-            pump_probe=bool(parameters.pump_repeat),
-        )
-
-        SSX_LOGGER.debug("Arm Zebra.")
-        shutter_time_offset = (
-            SHUTTER_OPEN_TIME
-            if parameters.pump_repeat is PumpProbeSetting.Medium1
-            else 0.0
-        )
-        yield from setup_zebra_for_fastchip_plan(
-            zebra,
-            parameters.detector_name,
-            num_gates,
-            parameters.num_exposures,
-            parameters.exposure_time_s,
-            shutter_time_offset,
-            wait=True,
-        )
-        if parameters.pump_repeat == PumpProbeSetting.Medium1:
-            yield from open_fast_shutter_at_each_position_plan(
-                zebra, parameters.num_exposures, parameters.exposure_time_s
-            )
-        yield from arm_zebra(zebra)
-
-        yield from bps.sleep(1.5)
-
-    else:
-        msg = f"Unknown Detector Type, det_type = {parameters.detector_name}"
-        SSX_LOGGER.error(msg)
-        raise ValueError(msg)
+    yield from bps.sleep(1.5)
 
     # Open the hutch shutter
     yield from bps.abs_set(shutter, ShutterDemand.OPEN, wait=True)
@@ -399,6 +382,7 @@ def finish_i24(
     dcm: DCM,
     detector_stage: YZStage,
     parameters: FixedTargetParameters,
+    detector_control: SerialDetectorControl,
 ):
     SSX_LOGGER.info(
         f"Finish I24 data collection with {parameters.detector_name} detector."
@@ -408,13 +392,9 @@ def finish_i24(
     transmission = float(caget(pv.requested_transmission))
     wavelength = yield from bps.rd(dcm.wavelength_in_a)
 
-    if parameters.detector_name == "eiger":
-        SSX_LOGGER.debug("Finish I24 Eiger")
-        yield from reset_zebra_when_collection_done_plan(zebra)
-        yield from sup.eiger("return-to-normal", None, dcm, detector_stage)
-        complete_filename = cagetstring(pv.eiger_od_filename_rbv)  # type: ignore
-    else:
-        raise ValueError(f"{parameters.detector_name} unrecognised")
+    yield from reset_zebra_when_collection_done_plan(zebra)
+    yield from detector_control.return_to_normal()
+    complete_filename = yield from detector_control.collection_filename()
 
     # Detector independent moves
     SSX_LOGGER.info("Move chip back to home position by setting PMAC_STRING pv.")
@@ -453,6 +433,7 @@ def main_fixed_target_plan(
     mirrors: FocusMirrorsMode,
     beam_center_device: DetectorBeamCenter,
     parameters: FixedTargetParameters,
+    detector_control: SerialDetectorControl,
     dcid: DCID,
 ) -> MsgGenerator:
     SSX_LOGGER.info("Running a chip collection on I24")
@@ -497,6 +478,7 @@ def main_fixed_target_plan(
         dcm,
         mirrors,
         beam_center_device,
+        detector_control,
         dcid,
     )
 
@@ -512,19 +494,21 @@ def main_fixed_target_plan(
     SSX_LOGGER.debug("Notify DCID of the start of the collection.")
     dcid.notify_start()
 
-    if parameters.detector_name == "eiger":
-        wavelength = yield from bps.rd(dcm.wavelength_in_a)
-        beam_x = yield from bps.rd(beam_center_device.beam_x)
-        beam_y = yield from bps.rd(beam_center_device.beam_y)
-        SSX_LOGGER.debug("Start nexus writing service.")
-        yield from call_nexgen(
-            chip_prog_dict, parameters, wavelength, (beam_x, beam_y), start_time
-        )
+    wavelength = yield from bps.rd(dcm.wavelength_in_a)
+    beam_x = yield from bps.rd(beam_center_device.beam_x)
+    beam_y = yield from bps.rd(beam_center_device.beam_y)
+    yield from detector_control.write_nexus_metadata(
+        chip_prog_dict, parameters, wavelength, (beam_x, beam_y), start_time
+    )
 
-    yield from kickoff_and_complete_collection(pmac, parameters)
+    yield from kickoff_and_complete_collection(pmac, parameters, detector_control)
 
 
-def kickoff_and_complete_collection(pmac: PMAC, parameters: FixedTargetParameters):
+def kickoff_and_complete_collection(
+    pmac: PMAC,
+    parameters: FixedTargetParameters,
+    detector_control: SerialDetectorControl,
+):
     prog_num = get_prog_num(
         parameters.chip.chip_type, parameters.map_type, parameters.pump_repeat
     )
@@ -535,8 +519,13 @@ def kickoff_and_complete_collection(pmac: PMAC, parameters: FixedTargetParameter
     def run_collection():
         SSX_LOGGER.info(f"Kick off PMAC with program number {prog_num}.")
         yield from bps.kickoff(pmac.run_program, wait=True)
+        # The motion program running to the end is what says the collection is over.
         yield from bps.complete(pmac.run_program, wait=True)
+        yield from detector_control.wait_for_completion()
         SSX_LOGGER.info("Collection completed without errors.")
+        yield from check_all_frames_written(
+            detector_control, parameters.total_num_images
+        )
 
     yield from run_collection()
 
@@ -561,6 +550,7 @@ def tidy_up_after_collection_plan(
     dcm: DCM,
     detector_stage: YZStage,
     parameters: FixedTargetParameters,
+    detector_control: SerialDetectorControl,
     dcid: DCID,
 ) -> MsgGenerator:
     """A plan to be run to tidy things up at the end af a fixed target collection, \
@@ -571,13 +561,11 @@ def tidy_up_after_collection_plan(
     yield from bps.sleep(2.0)
 
     # This probably should go in main then
-    if parameters.detector_name == "eiger":
-        SSX_LOGGER.debug("Eiger Acquire STOP")
-        caput(pv.eiger_acquire, 0)
-        caput(pv.eiger_od_capture, "Done")
-        yield from bps.sleep(0.5)
+    yield from detector_control.stop_acquisition()
 
-    yield from finish_i24(zebra, pmac, shutter, dcm, detector_stage, parameters)
+    yield from finish_i24(
+        zebra, pmac, shutter, dcm, detector_stage, parameters, detector_control
+    )
 
     SSX_LOGGER.debug("Notify DCID of end of collection.")
     dcid.notify_end()
@@ -615,6 +603,12 @@ def run_fixed_target_plan(
 
     beam_center_device = beam_center_eiger
 
+    # How this collection drives its detector. Built here, where the devices are
+    # injected, and passed down so the plans below never ask which detector it is.
+    detector_control = get_detector_control(
+        parameters.detector_name, dcm, detector_stage
+    )
+
     # DCID instance - do not create yet
     dcid = DCID(emit_errors=False, expt_params=parameters)
 
@@ -630,6 +624,7 @@ def run_fixed_target_plan(
         mirrors,
         beam_center_device,
         parameters,
+        detector_control,
         dcid,
     )
 
@@ -646,6 +641,7 @@ def run_plan_in_wrapper(
     mirrors: FocusMirrorsMode,
     beam_center_device: DetectorBeamCenter,
     parameters: FixedTargetParameters,
+    detector_control: SerialDetectorControl,
     dcid: DCID,
 ) -> MsgGenerator:
     yield from bpp.contingency_wrapper(
@@ -661,12 +657,20 @@ def run_plan_in_wrapper(
             mirrors,
             beam_center_device,
             parameters,
+            detector_control,
             dcid,
         ),
         except_plan=lambda e: (yield from run_aborted_plan(pmac, dcid, e)),
         final_plan=lambda: (
             yield from tidy_up_after_collection_plan(
-                zebra, pmac, shutter, dcm, detector_stage, parameters, dcid
+                zebra,
+                pmac,
+                shutter,
+                dcm,
+                detector_stage,
+                parameters,
+                detector_control,
+                dcid,
             )
         ),
         auto_raise=False,
