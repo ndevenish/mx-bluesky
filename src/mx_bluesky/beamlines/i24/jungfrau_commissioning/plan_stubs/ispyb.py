@@ -62,7 +62,7 @@ def create_rotation_data_collection(
     data = {
         "detectorId": detector_id,
         # The writer is given a name without an extension, and appends one itself.
-        "fileTemplate": f"{file_name}.h5",
+        "fileTemplate": f"{file_name}.nxs",
         "imageDirectory": str(image_directory),
         "startTime": start_time.isoformat(),
         "visit": _visit_for(params, str(image_directory)),
