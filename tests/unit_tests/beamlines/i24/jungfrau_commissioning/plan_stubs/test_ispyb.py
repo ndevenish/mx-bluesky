@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import datetime
 import json
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 import responses
 from bluesky.run_engine import RunEngine
 from dodal.devices.beamlines.i24.focus_mirrors import HFocusMode, VFocusMode
+from ophyd_async.core import set_mock_attr, set_mock_value
 
 from mx_bluesky.beamlines.i24.beam_center import JUNGFRAU_BEAM_CENTER_LUT
 from mx_bluesky.beamlines.i24.dcserver import DCServerError
@@ -15,9 +16,11 @@ from mx_bluesky.beamlines.i24.jungfrau_commissioning.composites import (
     RotationScanComposite,
 )
 from mx_bluesky.beamlines.i24.jungfrau_commissioning.plan_stubs.ispyb import (
+    MountedSample,
     UnknownVisitError,
     complete_rotation_data_collection,
     create_rotation_data_collection,
+    read_mounted_sample,
 )
 from tests.unit_tests.beamlines.i24.conftest import TEST_DCSERVER_URL
 from tests.unit_tests.beamlines.i24.jungfrau_commissioning.utils import (
@@ -139,7 +142,7 @@ async def test_a_data_collection_is_created_from_the_sweep_and_the_hardware(
     assert data["detectorId"] == 124
     assert data["visit"] == TEST_VISIT
     assert data["imageDirectory"] == TEST_DIRECTORY
-    assert data["fileTemplate"] == "file_name.h5"
+    assert data["fileTemplate"] == "file_name.nxs"
     assert data["numberOfImages"] == params.num_images
     assert data["startImageNumber"] == 1
     assert data["startTime"] == start_time.isoformat()
@@ -236,7 +239,15 @@ async def test_only_fields_the_server_accepts_are_sent(
 
 
 @pytest.mark.parametrize(
-    "sample_id, expected", [(0, None), (123456, 123456)], ids=["no sample", "a sample"]
+    "sample_id, puck, pin, expected",
+    [
+        (0, None, None, None),
+        (123456, None, None, 123456),
+        (0, 13, 1, {"puck": 13, "pin": 1}),
+        # A sample the robot could name is named, rather than left to be looked up.
+        (123456, 13, 1, 123456),
+    ],
+    ids=["no sample", "a sample", "a location", "both"],
 )
 async def test_a_sample_is_only_named_when_there_is_one(
     run_engine: RunEngine,
@@ -245,17 +256,69 @@ async def test_a_sample_is_only_named_when_there_is_one(
     dcserver,
     start_time,
     sample_id: int,
-    expected: int | None,
+    puck: int | None,
+    pin: int | None,
+    expected: int | dict | None,
 ):
     # ISPyB has a foreign key on blSampleId, so sending the parameters' stand-in for
-    # "no sample" fails the whole insert rather than leaving the column empty.
+    # "no sample" fails the whole insert rather than leaving the column empty. Where
+    # only the dewar location is known, the server resolves the sample from that.
     params = get_good_single_rotation_params(tmp_path)
     params.sample_id = sample_id
+    params.sample_puck = puck
+    params.sample_pin = pin
     await _set_up_readings(rotation_composite)
 
     run_engine(create_rotation_data_collection(rotation_composite, params, start_time))
 
     assert deposited(dcserver).get("blSampleId") == expected
+
+
+@pytest.mark.parametrize(
+    "sample_id, puck, pin, expected",
+    [
+        (123456, 0, 0, MountedSample(sample_id=123456)),
+        # The id the robot holds is of the sample it loaded, so it wins over where it
+        # loaded it from.
+        (123456, 13, 1, MountedSample(sample_id=123456)),
+        (0, 13, 1, MountedSample(puck=13, pin=1)),
+        # Half a location resolves to nothing, so it is not worth sending.
+        (0, 13, 0, MountedSample()),
+        (0, 0, 1, MountedSample()),
+        (0, 0, 0, MountedSample()),
+    ],
+    ids=["an id", "an id and a location", "a location", "no pin", "no puck", "neither"],
+)
+async def test_the_mounted_sample_is_whatever_the_robot_can_say_about_it(
+    run_engine: RunEngine,
+    rotation_composite: RotationScanComposite,
+    sample_id: int,
+    puck: int,
+    pin: int,
+    expected: MountedSample,
+):
+    set_mock_value(rotation_composite.robot.sample_id, sample_id)
+    set_mock_value(rotation_composite.robot.next_puck, puck)
+    set_mock_value(rotation_composite.robot.next_pin, pin)
+
+    result = run_engine(read_mounted_sample(rotation_composite.robot)).plan_result  # type: ignore
+
+    assert result == expected
+
+
+async def test_a_robot_that_cannot_be_read_leaves_the_sample_unknown(
+    run_engine: RunEngine, rotation_composite: RotationScanComposite
+):
+    # Which sample this is, is worth labelling a collection with, but not worth
+    # losing one over.
+    set_mock_attr(
+        rotation_composite.robot.sample_id,
+        "read",
+        MagicMock(side_effect=TimeoutError("the robot IOC is down")),
+    )
+    result = run_engine(read_mounted_sample(rotation_composite.robot)).plan_result  # type: ignore
+
+    assert result == MountedSample()
 
 
 async def test_the_visit_is_taken_from_where_the_data_is_written(
