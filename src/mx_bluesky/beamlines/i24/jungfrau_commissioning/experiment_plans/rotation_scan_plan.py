@@ -28,8 +28,10 @@ from mx_bluesky.beamlines.i24.jungfrau_commissioning.composites import (
     RotationScanComposite,
 )
 from mx_bluesky.beamlines.i24.jungfrau_commissioning.plan_stubs.ispyb import (
+    MountedSample,
     complete_rotation_data_collection,
     create_rotation_data_collection,
+    read_mounted_sample,
 )
 from mx_bluesky.beamlines.i24.jungfrau_commissioning.plan_stubs.plan_utils import (
     JF_COMPLETE_GROUP,
@@ -77,7 +79,6 @@ class ExternalRotationScanParams(BaseModel):
     scan_width_deg: float = Field(default=360, gt=0)
     filename: str = "rotations"
     detector_distance_mm: float = DEFAULT_DETECTOR_DISTANCE_MM
-    sample_id: int
 
     @field_validator("transmission_fractions")
     @classmethod
@@ -91,10 +92,16 @@ class ExternalRotationScanParams(BaseModel):
 
 
 def _get_internal_rotation_params(
-    entry_params: ExternalRotationScanParams, transmission: float
+    entry_params: ExternalRotationScanParams,
+    transmission: float,
+    sample: MountedSample,
 ) -> SingleRotationScan:
     return SingleRotationScan(
-        sample_id=entry_params.sample_id,
+        # Whichever of these the robot could tell us; SingleRotationScan demands a
+        # sample id, so an unknown sample is the 0 that stands in for one.
+        sample_id=sample.sample_id,
+        sample_puck=sample.puck,
+        sample_pin=sample.pin,
         visit=USE_NUMTRACKER,  # See https://github.com/DiamondLightSource/mx-bluesky/issues/1527
         parameter_model_version=get_param_version(),
         file_name=entry_params.filename,
@@ -118,8 +125,12 @@ def rotation_scan_plan(
 ) -> MsgGenerator:
     """BlueAPI entry point for i24 JF rotation scans"""
 
+    # Once for the whole request rather than per sweep: the sample cannot change
+    # between the sweeps of one collection without someone opening the hutch.
+    sample = yield from read_mounted_sample(composite.robot)
+
     for transmission in params.transmission_fractions:
-        rotation_params = _get_internal_rotation_params(params, transmission)
+        rotation_params = _get_internal_rotation_params(params, transmission, sample)
         yield from single_rotation_plan(composite, rotation_params)
 
 
