@@ -17,6 +17,7 @@ from dodal.devices.beamlines.i24.focus_mirrors import FocusMirrorsMode
 from dodal.devices.hutch_shutter import InterlockedHutchShutter
 from dodal.devices.interlocks import PSSInterlock
 from dodal.devices.motors import YZStage
+from dodal.devices.robot import BartRobot
 from dodal.devices.synchrotron import Synchrotron
 from dodal.devices.zebra.zebra import Zebra
 from dodal.devices.zebra.zebra_controlled_shutter import MXZebraShutter
@@ -85,6 +86,7 @@ def rotation_composite(
         detector_motion = YZStage("")
         backlight = DualBacklight("")
         dcm = DCM("", "")
+        robot = BartRobot("")
 
     # By keyword: the field names must match the i24 dodal device names, since that is
     # how blueapi resolves them, so a rename here is a real change rather than a shuffle.
@@ -102,6 +104,7 @@ def rotation_composite(
         backlight=backlight,
         dcm=dcm,
         focus_mirrors=mirrors,
+        robot=robot,
     )
 
     return composite

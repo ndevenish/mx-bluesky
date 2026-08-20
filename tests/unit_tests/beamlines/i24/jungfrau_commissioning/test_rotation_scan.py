@@ -26,6 +26,9 @@ from mx_bluesky.beamlines.i24.jungfrau_commissioning.experiment_plans.rotation_s
     set_up_beamline_for_rotation,
     single_rotation_plan,
 )
+from mx_bluesky.beamlines.i24.jungfrau_commissioning.plan_stubs.ispyb import (
+    MountedSample,
+)
 from mx_bluesky.beamlines.i24.jungfrau_commissioning.plan_stubs.plan_utils import (
     JF_COMPLETE_GROUP,
 )
@@ -60,10 +63,9 @@ def test_requested_sweep_reaches_the_internal_rotation_params():
         omega_start_deg=45,
         rotation_increment_per_image_deg=0.2,
         scan_width_deg=90,
-        sample_id=123456,
     )
 
-    internal = _get_internal_rotation_params(external, 0.1)
+    internal = _get_internal_rotation_params(external, 0.1, MountedSample())
 
     assert internal.omega_start_deg == 45
     assert internal.rotation_increment_deg == 0.2
@@ -83,7 +85,6 @@ def test_a_sweep_of_no_images_is_rejected(
         ExternalRotationScanParams(
             transmission_fractions=[0.1],
             exposure_time_s=0.01,
-            sample_id=123456,
             rotation_increment_per_image_deg=rotation_increment_per_image_deg,
             scan_width_deg=scan_width_deg,
         )
@@ -340,6 +341,40 @@ def test_rotation_plan_multiple_transmissions(
         for i in range(mock_single_rotation.call_count)
     ]
     assert desired_transmission_fracs == called_transmission_fracs
+
+
+@patch(
+    "mx_bluesky.beamlines.i24.jungfrau_commissioning.experiment_plans.rotation_scan_plan.single_rotation_plan"
+)
+@pytest.mark.parametrize(
+    "sample_id, puck, pin, expected",
+    [
+        (123456, 13, 1, (123456, None, None)),
+        (0, 13, 1, (0, 13, 1)),
+        (0, 0, 0, (0, None, None)),
+    ],
+    ids=["a known sample", "a location to resolve one from", "nothing mounted"],
+)
+def test_the_sample_the_robot_reports_is_what_the_collection_is_of(
+    mock_single_rotation: MagicMock,
+    run_engine: RunEngine,
+    tmp_path,
+    rotation_composite: RotationScanComposite,
+    sample_id: int,
+    puck: int,
+    pin: int,
+    expected: tuple[int, int | None, int | None],
+):
+    # Nobody types a sample id in - it comes from whatever the robot last loaded.
+    params = get_good_multi_rotation_params([0.1], tmp_path)
+    set_mock_value(rotation_composite.robot.sample_id, sample_id)
+    set_mock_value(rotation_composite.robot.next_puck, puck)
+    set_mock_value(rotation_composite.robot.next_pin, pin)
+
+    run_engine(rotation_scan_plan(rotation_composite, params))
+
+    internal = mock_single_rotation.call_args.args[1]
+    assert (internal.sample_id, internal.sample_puck, internal.sample_pin) == expected
 
 
 async def test_set_up_beamline_for_rotation_success(
