@@ -13,6 +13,7 @@ from dodal.devices.beamlines.i24.focus_mirrors import FocusMirrorsMode
 from dodal.devices.beamlines.i24.vgonio import VerticalGoniometer
 from dodal.devices.hutch_shutter import InterlockedHutchShutter
 from dodal.devices.motors import YZStage
+from dodal.devices.robot import BartRobot
 from dodal.devices.synchrotron import Synchrotron
 from dodal.devices.zebra.zebra import Zebra
 from dodal.devices.zebra.zebra_controlled_shutter import MXZebraShutter
@@ -36,3 +37,4 @@ class RotationScanComposite:
     backlight: DualBacklight
     dcm: DCM
     focus_mirrors: FocusMirrorsMode
+    robot: BartRobot
