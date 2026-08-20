@@ -7,10 +7,12 @@ only the plan can call one off - the RunEngine discards whatever a callback rais
 
 import datetime
 from pathlib import Path
+from typing import Any, NamedTuple
 
 import bluesky.plan_stubs as bps
 from bluesky.utils import MsgGenerator
 from dodal.devices.detector.det_dim_constants import JUNGFRAU_9M_SIZE
+from dodal.devices.robot import BartRobot
 
 from mx_bluesky.beamlines.i24.beam_center import (
     JUNGFRAU_BEAM_CENTER_LUT,
@@ -37,6 +39,51 @@ _VISIT_PATH_INDEX = 5
 
 class UnknownVisitError(Exception):
     """There is no visit to record a collection under."""
+
+
+class MountedSample(NamedTuple):
+    """Which sample a collection is of, as far as the robot knows.
+
+    Either an ISPyB sample id, or the dewar location to look one up from, or neither -
+    a hand-mounted pin the robot has never seen is all three of those.
+    """
+
+    sample_id: int = 0
+    puck: int | None = None
+    pin: int | None = None
+
+
+def read_mounted_sample(robot: BartRobot) -> MsgGenerator[MountedSample]:
+    """Work out which sample is on the goniometer, so nobody has to type its id in.
+
+    The robot knows the id of the sample it last loaded, if it was told one; failing
+    that it knows where in the dewar that sample came from, which ISPyB can resolve to
+    the same thing. A hand-mounted pin leaves both unset, and a beamtime that loads by
+    hand throughout leaves the location holding whatever was last loaded by robot, so
+    neither is more than the robot's best guess.
+
+    Never raises: which sample this is, is worth a collection being labelled with, but
+    not worth a collection over.
+    """
+    try:
+        sample_id = yield from bps.rd(robot.sample_id)
+        if sample_id > 0:
+            LOGGER.info("Collecting on sample %s, per the robot", sample_id)
+            return MountedSample(sample_id=sample_id)
+        # Not "current", because the robot only fills those in for a sample it
+        # loaded with a barcode read; next_* is where a load is addressed to, and so
+        # holds the location of the pin that is mounted. Both read as floats, of what
+        # are dewar positions.
+        puck = yield from bps.rd(robot.next_puck)
+        pin = yield from bps.rd(robot.next_pin)
+    except Exception as e:
+        LOGGER.warning("Could not tell which sample is mounted: %s", e)
+        return MountedSample()
+    if not (puck and pin):
+        LOGGER.info("The robot does not know which sample is mounted")
+        return MountedSample()
+    LOGGER.info("Collecting on puck %s pin %s, per the robot", puck, pin)
+    return MountedSample(puck=int(puck), pin=int(pin))
 
 
 def create_rotation_data_collection(
@@ -86,12 +133,8 @@ def create_rotation_data_collection(
         "axisRange": params.rotation_increment_deg,
         "omegaStart": params.omega_start_deg,
         **_beam_center(detector_distance_mm),
+        **_sample(params),
     }
-    if params.sample_id > 0:
-        # ISPyB has a foreign key on this, so a sample that does not exist fails the
-        # whole insert. The parameters demand a sample id, and the web UI defaults the
-        # field to 0, so that is what "no sample" looks like.
-        data["blSampleId"] = params.sample_id
 
     dcid = create_data_collection(data)
     LOGGER.info("Generated DCID %s", dcid)
@@ -119,6 +162,21 @@ def complete_rotation_data_collection(dcid: int, aborted: bool) -> MsgGenerator:
     except Exception as e:
         LOGGER.exception("Could not complete DCID %s: %s", dcid, e)
     yield from bps.null()
+
+
+def _sample(params: SingleRotationScan) -> dict[str, Any]:
+    """Which sample to record the collection against, if it is known.
+
+    ISPyB has a foreign key on blSampleId, so a sample that does not exist fails the
+    whole insert - hence sending nothing at all rather than a stand-in when the sample
+    is unknown. Where only the dewar location is known, the server is given that to
+    resolve, as {"puck": .., "pin": ..} in place of the id.
+    """
+    if params.sample_id > 0:
+        return {"blSampleId": params.sample_id}
+    if params.sample_puck and params.sample_pin:
+        return {"blSampleId": {"puck": params.sample_puck, "pin": params.sample_pin}}
+    return {}
 
 
 def _visit_for(params: SingleRotationScan, image_directory: str) -> str:

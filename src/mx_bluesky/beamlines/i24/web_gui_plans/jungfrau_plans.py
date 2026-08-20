@@ -20,7 +20,6 @@ def gui_run_jf_rotation_scan(
     omega_increment_deg: float,
     scan_width_deg: float,
     det_distance_mm: float,
-    sample_id: int,
     transmissions: list[float],
     composite: RotationScanComposite = inject(),
 ) -> MsgGenerator:
@@ -32,7 +31,6 @@ def gui_run_jf_rotation_scan(
         scan_width_deg=scan_width_deg,
         filename=filename,
         detector_distance_mm=det_distance_mm,
-        sample_id=sample_id,
     )
 
     yield from rotation_scan_plan(composite, params)

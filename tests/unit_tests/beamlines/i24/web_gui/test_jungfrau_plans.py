@@ -15,6 +15,7 @@ from dodal.devices.beamlines.i24.focus_mirrors import FocusMirrorsMode
 from dodal.devices.beamlines.i24.vgonio import VerticalGoniometer
 from dodal.devices.hutch_shutter import InterlockedHutchShutter
 from dodal.devices.motors import YZStage
+from dodal.devices.robot import BartRobot
 from dodal.devices.synchrotron import Synchrotron
 from dodal.devices.zebra.zebra import Zebra
 from dodal.devices.zebra.zebra_controlled_shutter import MXZebraShutter
@@ -32,6 +33,11 @@ def vertical_gonio() -> VerticalGoniometer:
     return i24.vgonio.build(connect_immediately=True, mock=True)
 
 
+@pytest.fixture
+def robot() -> BartRobot:
+    return i24.robot.build(connect_immediately=True, mock=True)
+
+
 def test_run_jf_rotation(
     jungfrau: CommissioningJungfrauDetector,
     zebra: Zebra,
@@ -46,6 +52,7 @@ def test_run_jf_rotation(
     shutter: InterlockedHutchShutter,
     sample_shutter: MXZebraShutter,
     mirrors: FocusMirrorsMode,
+    robot: BartRobot,
     run_engine: RunEngine,
 ):
     composite = RotationScanComposite(
@@ -62,6 +69,7 @@ def test_run_jf_rotation(
         backlight=backlight,
         dcm=dcm,
         focus_mirrors=mirrors,
+        robot=robot,
     )
     with patch(
         "mx_bluesky.beamlines.i24.web_gui_plans.jungfrau_plans.rotation_scan_plan",
@@ -69,7 +77,7 @@ def test_run_jf_rotation(
     ) as patch_inner_plan:
         run_engine(
             gui_run_jf_rotation_scan(
-                "new_rotation", 0.01, 0.0, 0.1, 90, 300, 1, [0.3], composite
+                "new_rotation", 0.01, 0.0, 0.1, 90, 300, [0.3], composite
             )
         )
 
@@ -83,5 +91,4 @@ def test_run_jf_rotation(
         assert params.rotation_increment_per_image_deg == 0.1
         assert params.scan_width_deg == 90
         assert params.detector_distance_mm == 300
-        assert params.sample_id == 1
         assert params.transmission_fractions == [0.3]
